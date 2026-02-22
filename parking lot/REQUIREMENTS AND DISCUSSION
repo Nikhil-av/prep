@@ -1,0 +1,396 @@
+# PARKING LOT SYSTEM - Requirement Clarification & Discussion
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🎯 Problem Statement
+Design a **Parking Lot System** that can handle multiple vehicle types, assign appropriate parking spots, track entry/exit times, and calculate fees based on duration.
+
+---
+
+## 🗣️ Clarifying Questions & Answers
+
+### 1. WHO — Actors
+
+| Actor | Role |
+|-------|------|
+| **Driver** | Parks vehicle, pays fee |
+| **Entry Gate** | Issues ticket, assigns spot |
+| **Exit Gate** | Collects ticket, calculates fee, processes payment |
+| **Admin** | Configures floors, spots, pricing (out of scope) |
+
+---
+
+### 2. WHAT — Vehicles & Spots
+
+**Q: What types of vehicles?**
+
+| Vehicle Type | Spot Size Needed | Hourly Rate |
+|--------------|------------------|-------------|
+| Motorcycle | Small | ₹20/hr |
+| Car | Medium | ₹40/hr |
+| Truck/Bus | Large | ₹60/hr |
+
+**Q: What sizes of spots?**
+
+| Spot Size | Can Park |
+|-----------|----------|
+| Small | Motorcycle only |
+| Medium | Motorcycle, Car |
+| Large | Motorcycle, Car, Truck |
+
+**Rule:** A vehicle can park in a spot of **its size or larger**.
+
+---
+
+### 3. HOW — Main Flow
+
+```
+┌─────────────────┐
+│   Vehicle       │
+│   Arrives       │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Check Capacity │
+│  (Spot Available?)│
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌───────┐ ┌────────┐
+│ FULL  │ │ SPACE  │
+│ Reject│ │ FOUND  │
+└───────┘ └────┬───┘
+               │
+               ▼
+        ┌─────────────────┐
+        │ Assign Spot     │
+        │ (via Strategy)  │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │ Issue Ticket    │
+        │ (id, vehicle,   │
+        │  entry_time,    │
+        │  spot)          │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │ Vehicle Parks   │
+        └────────┬────────┘
+                 │
+           ... time passes ...
+                 │
+                 ▼
+        ┌─────────────────┐
+        │ Vehicle at Exit │
+        │ Scan Ticket     │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │ Calculate Fee   │
+        │ (duration × rate)│
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │ Process Payment │
+        │ Free Spot       │
+        │ Exit            │
+        └─────────────────┘
+```
+
+---
+
+### 4. LINKS — Relationships
+
+```
+┌──────────────┐
+│ ParkingLot   │
+└──────┬───────┘
+       │ 1:N
+       ▼
+┌──────────────┐
+│    Floor     │
+└──────┬───────┘
+       │ 1:N
+       ▼
+┌──────────────┐         ┌──────────────┐
+│    Spot      │─────────│   Vehicle    │
+└──────────────┘  parks  └──────────────┘
+                           │
+                           │ has
+                           ▼
+                  ┌──────────────┐
+                  │   Ticket     │
+                  └──────────────┘
+```
+
+---
+
+### 5. LIMITS — Constraints
+
+| Constraint | Value |
+|------------|-------|
+| Floors | Multiple (e.g., 3) |
+| Spots per floor | Configurable (e.g., 100) |
+| Vehicle fits spot | Size match required |
+| Max duration | None (or 24 hrs for daily rate) |
+
+---
+
+### 6. FAILS — What Can Go Wrong?
+
+| Scenario | Handling |
+|----------|----------|
+| Lot is full | Reject entry, display "FULL" |
+| No spot fits vehicle | Reject entry |
+| Ticket lost | Charge max daily rate |
+| Payment fails | Keep vehicle until payment complete |
+
+---
+
+### 7. SCALE — Extensions
+
+| Extension | How to Add |
+|-----------|------------|
+| Electric charging spots | New SpotType with charging |
+| Subscription parking | Prepaid passes, skip payment |
+| Multiple entry/exit gates | Gate entity, concurrent handling |
+| Reserved spots | SpotStatus.RESERVED |
+
+---
+
+## ✅ Final Scope Summary
+
+| Aspect | Decision |
+|--------|----------|
+| **Vehicles** | Motorcycle, Car, Truck |
+| **Spot Sizes** | Small, Medium, Large |
+| **Floors** | Multiple (configurable) |
+| **Entry** | Issue ticket, assign spot |
+| **Exit** | Return ticket, pay fee, free spot |
+| **Pricing Strategy** | Hourly (default), Flat, Progressive |
+| **Allocation Strategy** | FirstAvailable (default), NearestToEntry |
+| **Full Lot** | Reject entry |
+| **Ticket Lost** | Pay max daily rate |
+| **Gates** | 1 entry, 1 exit (simple) |
+
+---
+
+## 💡 Design Patterns to Use
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **Strategy** | Pricing | Different fee calculation methods |
+| **Strategy** | Spot Allocation | Different ways to find a spot |
+| **Factory** | Vehicle Creation | Create Motorcycle/Car/Truck |
+| **Singleton** | ParkingLot | One lot instance |
+
+---
+
+## 📦 Entities
+
+### Enums
+
+```python
+class VehicleType(Enum):
+    MOTORCYCLE = "MOTORCYCLE"
+    CAR = "CAR"
+    TRUCK = "TRUCK"
+
+class SpotSize(Enum):
+    SMALL = 1
+    MEDIUM = 2
+    LARGE = 3
+
+class SpotStatus(Enum):
+    AVAILABLE = "AVAILABLE"
+    OCCUPIED = "OCCUPIED"
+```
+
+---
+
+### Classes
+
+| Class | Attributes |
+|-------|------------|
+| **Vehicle** | license_plate, vehicle_type |
+| **Motorcycle** | (extends Vehicle) |
+| **Car** | (extends Vehicle) |
+| **Truck** | (extends Vehicle) |
+| **ParkingSpot** | spot_id, size, floor, status, vehicle |
+| **Floor** | floor_number, spots |
+| **Ticket** | ticket_id, vehicle, spot, entry_time |
+| **PricingStrategy** | Abstract base |
+| **HourlyPricing** | rate_per_hour |
+| **AllocationStrategy** | Abstract base |
+| **FirstAvailableStrategy** | - |
+| **ParkingLot** | floors, tickets, strategies |
+
+---
+
+## 🔧 Key Design Decisions
+
+### 1. Vehicle Hierarchy
+
+```python
+class Vehicle(ABC):
+    def __init__(self, license_plate: str):
+        self.license_plate = license_plate
+    
+    @abstractmethod
+    def get_type(self) -> VehicleType:
+        pass
+    
+    @abstractmethod
+    def get_required_size(self) -> SpotSize:
+        pass
+
+class Motorcycle(Vehicle):
+    def get_type(self): return VehicleType.MOTORCYCLE
+    def get_required_size(self): return SpotSize.SMALL
+
+class Car(Vehicle):
+    def get_type(self): return VehicleType.CAR
+    def get_required_size(self): return SpotSize.MEDIUM
+
+class Truck(Vehicle):
+    def get_type(self): return VehicleType.TRUCK
+    def get_required_size(self): return SpotSize.LARGE
+```
+
+---
+
+### 2. Spot Can Fit Vehicle Logic
+
+```python
+class ParkingSpot:
+    def can_fit(self, vehicle: Vehicle) -> bool:
+        # Spot size must be >= vehicle required size
+        return self.size.value >= vehicle.get_required_size().value
+```
+
+---
+
+### 3. Pricing Strategy
+
+```python
+class PricingStrategy(ABC):
+    @abstractmethod
+    def calculate_fee(self, vehicle: Vehicle, hours: float) -> float:
+        pass
+
+class HourlyPricing(PricingStrategy):
+    RATES = {
+        VehicleType.MOTORCYCLE: 20,
+        VehicleType.CAR: 40,
+        VehicleType.TRUCK: 60
+    }
+    
+    def calculate_fee(self, vehicle, hours):
+        rate = self.RATES[vehicle.get_type()]
+        return rate * math.ceil(hours)  # Round up to next hour
+```
+
+---
+
+### 4. Allocation Strategy
+
+```python
+class AllocationStrategy(ABC):
+    @abstractmethod
+    def find_spot(self, floors: list, vehicle: Vehicle) -> ParkingSpot:
+        pass
+
+class FirstAvailableStrategy(AllocationStrategy):
+    def find_spot(self, floors, vehicle):
+        for floor in floors:
+            for spot in floor.spots:
+                if spot.is_available() and spot.can_fit(vehicle):
+                    return spot
+        return None  # No spot found
+```
+
+---
+
+## 🎬 Core Use Cases
+
+### Use Case 1: Vehicle Entry (Happy Path)
+1. Vehicle arrives at entry gate
+2. System checks capacity
+3. System finds available spot using AllocationStrategy
+4. System assigns spot, issues ticket
+5. Vehicle parks at assigned spot
+
+### Use Case 2: Vehicle Exit
+1. Vehicle returns to exit gate
+2. Driver scans ticket
+3. System calculates fee using PricingStrategy
+4. Driver pays
+5. System frees spot, vehicle exits
+
+### Use Case 3: Lot Full
+1. Vehicle arrives
+2. System checks capacity → No spot available
+3. System rejects entry
+4. Display "LOT FULL"
+
+### Use Case 4: Ticket Lost
+1. Driver at exit without ticket
+2. System uses license plate to find entry (optional)
+3. OR charge maximum daily rate
+4. Process payment, exit
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums | No dependencies |
+| 2 | Vehicle hierarchy | Core entity |
+| 3 | ParkingSpot | Can fit logic |
+| 4 | Floor | Contains spots |
+| 5 | Ticket | Links vehicle to spot |
+| 6 | PricingStrategy | Fee calculation |
+| 7 | AllocationStrategy | Spot finding |
+| 8 | ParkingLot | Main facade |
+| 9 | Demo | Prove it works |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] VehicleType enum (MOTORCYCLE, CAR, TRUCK)
+- [ ] SpotSize enum (SMALL, MEDIUM, LARGE)
+- [ ] Vehicle base class with subclasses
+- [ ] Spot with can_fit() logic
+- [ ] Floor with spots list
+- [ ] Ticket with entry_time
+- [ ] PricingStrategy (Hourly)
+- [ ] AllocationStrategy (FirstAvailable)
+- [ ] ParkingLot with park() and unpark()
+- [ ] Demo: entry → park → exit → pay
+
+---
+
+## ⚠️ Common Interview Mistakes
+
+| Mistake | Better Approach |
+|---------|-----------------|
+| No size matching | Spot must fit vehicle size |
+| Price on Spot | Price based on vehicle type + duration |
+| No ticket | Need ticket to track entry time |
+| No strategy pattern | Use Strategy for pricing + allocation |
+| Single floor only | Design for multiple floors |
+
+---
+
+*Document created during LLD interview prep session*

@@ -1,0 +1,226 @@
+# CAR RENTAL SYSTEM - Requirement Clarification & Discussion
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🎯 Problem Statement
+Design a Car Rental System (like Hertz, Enterprise, or Zoomcar) where users can browse, book, and return rental cars from multiple locations.
+
+---
+
+## 📋 The "PLACE" Framework for Requirement Gathering
+
+Use this framework to ensure you don't miss important questions:
+
+| Letter | Category | What to Ask |
+|--------|----------|-------------|
+| **P** | People (Actors) | Who uses this? (Customer, Admin, Staff?) What can each do? |
+| **L** | Locations | Single or multiple? Can things move between locations? |
+| **A** | Actions (Core Flows) | What are the 3-5 main things users do? |
+| **C** | Constraints & Edge Cases | What if something goes wrong? |
+| **E** | Extensions & Money | How does payment work? Fees, penalties, refunds? |
+
+---
+
+## 🗣️ Clarifying Questions & Answers
+
+### 1. Car Types & Attributes
+
+**Q: What types of cars do we support? Different seaters, fuel types (CNG, Petrol, Diesel)?**
+
+**A:** 
+- **Car Types:** Sedan (4-seater), SUV (6-7 seater), Hatchback (4-seater economy)
+- **Fuel Type:** Keep it simple—assume all cars are petrol. Can be an extension.
+
+---
+
+### 2. Pricing Strategy
+
+**Q: What factors does pricing depend on? Is it standard or dynamic?**
+
+**A:**
+- **Flat daily rate per car type** (no surge pricing, no weekend rates)
+- SUV > Sedan > Hatchback (in terms of cost)
+- Price = Daily Rate × Number of Days
+
+---
+
+### 3. User Verification
+
+**Q: Can anyone book, or do they need to be verified?**
+
+**A:**
+- Users have two states: **Unverified** and **Verified**
+- **Unverified:** Can browse cars, cannot book
+- **Verified:** License and ID checked (externally), can book
+- Your system just tracks the verification status
+
+---
+
+### 4. Locations (IMPORTANT - Often Missed!)
+
+**Q: Single store or multiple branches? Can users do cross-location returns?**
+
+**A:**
+- **Multiple branches** (e.g., Airport, Downtown, Mall)
+- **Same-location return only** for now
+- Cross-location drop-off can be an extension
+
+---
+
+### 5. Late Returns
+
+**Q: What happens if a user returns the car late?**
+
+**A:**
+- Charge a **late fee** (fixed penalty per day of delay)
+- System tracks: `expectedReturnTime` vs `actualReturnTime`
+- Late return should be flagged for admin visibility
+
+---
+
+### 6. Cancellation Policy
+
+**Q: What is the cancellation policy?**
+
+**A:**
+- **Before pickup:** Full refund
+- **After pickup (mid-rental):** No refund, treated as early return
+
+---
+
+### 7. The Tricky Edge Case: Back-to-Back Bookings
+
+**Q: What if User A's car is late, and User B is supposed to get the same car next?**
+
+**A:**
+- System **does not auto-book the same physical car back-to-back** (there's a buffer)
+- If a car isn't returned on time, admin manually handles it
+- System should **flag the booking as "At Risk"** if previous rental is overdue
+- Don't over-engineer conflict resolution—just ensure data model can track it
+
+---
+
+### 8. Payment
+
+**Q: When does the user pay? Is there a security deposit?**
+
+**A:**
+- User pays **at booking time** (online payment)
+- **No security deposit** for this problem
+- Damage handling assumed to be offline (insurance)
+
+---
+
+### 9. Search & Availability
+
+**Q: How do users search for cars? What filters?**
+
+**A:**
+- Filters: **Car type, Location, Date range**
+- Availability is determined by checking if the car has no overlapping bookings for the requested dates
+
+---
+
+### 10. Admin Capabilities
+
+**Q: Do we need full admin panel?**
+
+**A:**
+- **No full admin panel** needed
+- But design should allow admin to:
+  - Add a new car to a branch
+  - Mark a car as "Under Maintenance" (not available for booking)
+- These are just methods on service classes
+
+---
+
+## ✅ Final Scope Summary
+
+| Aspect | Decision |
+|--------|----------|
+| **Car Types** | Sedan, SUV, Hatchback |
+| **Fuel Type** | Ignore (all petrol) |
+| **Locations** | Multiple branches, same-location return |
+| **User Verification** | User must be verified to book |
+| **Pricing** | Flat daily rate per car type |
+| **Payment** | At booking time, no deposit |
+| **Late Return** | Penalty fee per day |
+| **Cancellation** | Full refund if before pickup |
+| **Admin** | Simple methods to add car, mark maintenance |
+
+---
+
+## 🎬 Core Use Cases (Functional Requirements)
+
+1. **User Registration & Verification**
+   - User creates account
+   - User submits documents for verification
+   - System marks user as verified/unverified
+
+2. **Browse Cars**
+   - User selects location, pickup date, return date
+   - System shows available cars (filtered by type if needed)
+
+3. **Book a Car**
+   - Verified user selects a car
+   - System creates reservation
+   - User pays online
+   - Booking confirmed
+
+4. **Pickup Car**
+   - User arrives at branch
+   - Staff hands over the car
+   - Rental period starts
+
+5. **Return Car**
+   - User returns car to same branch
+   - System calculates: on-time or late
+   - If late, apply penalty
+   - Rental completed
+
+6. **Cancel Booking**
+   - User cancels before pickup → Full refund
+   - After pickup → No refund
+
+7. **Admin: Manage Inventory**
+   - Add new car to branch
+   - Mark car as under maintenance
+   - View overdue rentals
+
+---
+
+## 🚫 Out of Scope (For This Interview)
+
+- Cross-location drop-off
+- Dynamic/surge pricing
+- Security deposits
+- Insurance claims
+- Driver assignment
+- Real-time GPS tracking
+- Mobile app specific features
+
+---
+
+## 💡 Key Design Patterns to Consider
+
+| Pattern | Where to Use |
+|---------|--------------|
+| **Strategy Pattern** | Pricing (different rates for car types) |
+| **State Pattern** | Booking lifecycle (Reserved → Active → Completed → Cancelled) |
+| **Factory Pattern** | Creating different car types |
+| **Singleton** | RentalService, InventoryManager |
+
+---
+
+## 📝 Next Steps
+
+1. **Identify Entities** (Car, User, Booking, Branch, etc.)
+2. **Define Attributes** for each entity
+3. **Establish Relationships** (Car belongs to Branch, Booking has User and Car)
+4. **Design Core Services** (RentalService, SearchService, PaymentService)
+5. **Implement with Design Patterns**
+
+---
+
+*Document created during LLD interview prep session*

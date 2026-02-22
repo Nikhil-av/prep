@@ -1,0 +1,315 @@
+# CAR RENTAL SYSTEM - Entities, Attributes & Relations
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🧠 Thinking Process: How to Identify Entities
+
+### Step 1: Start with the "Nouns" in Requirements
+Read through the requirements and highlight nouns:
+- "**User** books a **Car** from a **Branch**"
+- "**Booking** has pickup and return dates"
+- "**Payment** is made at booking time"
+
+### Step 2: Classify into Categories
+| Category | Examples |
+|----------|----------|
+| **Core Entities** | Car, User, Booking, Branch |
+| **Enums (Fixed Values)** | CarType, CarStatus, BookingStatus |
+| **Services (Logic Handlers)** | BookingService, SearchService |
+| **System (Singleton)** | CarRentalSystem |
+
+### Step 3: Ask "What data does each entity need?"
+For each entity, ask:
+- What uniquely identifies it? (ID/UUID)
+- What are its core properties?
+- What state can it be in? (Status enum)
+- What other entities does it relate to?
+
+---
+
+## 📦 Enums (Start Here - No Dependencies)
+
+### CarType
+```python
+class CarType(Enum):
+    SEDAN = "SEDAN"           # 4-seater, mid-range
+    SUV = "SUV"               # 6-7 seater, premium
+    HATCHBACK = "HATCHBACK"   # 4-seater, economy
+```
+
+### CarStatus
+```python
+class CarStatus(Enum):
+    AVAILABLE = "AVAILABLE"           # Ready to rent
+    RENTED = "RENTED"                 # Currently with a customer
+    UNDER_MAINTENANCE = "MAINTENANCE" # Being serviced
+```
+
+### BookingStatus
+```python
+class BookingStatus(Enum):
+    RESERVED = "RESERVED"     # Booked, not yet picked up
+    ACTIVE = "ACTIVE"         # Customer has the car
+    COMPLETED = "COMPLETED"   # Car returned successfully
+    CANCELLED = "CANCELLED"   # Booking was cancelled
+```
+
+### UserStatus
+```python
+class UserStatus(Enum):
+    UNVERIFIED = "UNVERIFIED"  # Can browse, cannot book
+    VERIFIED = "VERIFIED"      # Documents checked, can book
+    BLOCKED = "BLOCKED"        # Banned from platform
+```
+
+---
+
+## 🚗 Entity: Car
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `car_id` | UUID/String | Unique identifier |
+| `license_plate` | String | Registration number (e.g., "KA-01-AB-1234") |
+| `car_type` | CarType | Sedan, SUV, or Hatchback |
+| `car_name` | String | Model name (e.g., "Toyota Camry") |
+| `seater` | int | Number of seats |
+| `daily_rate` | float | Rental price per day |
+| `status` | CarStatus | Available, Rented, Maintenance |
+| `branch_id` | String | Which branch this car belongs to |
+| `rating` | float | Average customer rating (optional) |
+
+### Key Decisions
+- **daily_rate on Car (not CarType):** Allows different prices for same type (2024 model vs 2018)
+- **branch_id as String:** Simple reference, avoids circular dependency
+
+### Methods
+- `is_available()` → bool
+- `mark_as_rented()`
+- `mark_as_available()`
+- `mark_under_maintenance()`
+
+---
+
+## 👤 Entity: User
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `user_id` | UUID/String | Unique identifier |
+| `name` | String | Full name |
+| `email` | String | Email address (unique) |
+| `phone` | String | Contact number |
+| `password` | String | Hashed password |
+| `license_number` | String | Driving license ID |
+| `social_id` | String | Aadhaar/SSN for verification |
+| `status` | UserStatus | Verified, Unverified, Blocked |
+
+### Key Decisions
+- **license_number required:** Can't rent without valid license
+- **status determines booking ability:** Only VERIFIED users can book
+
+### Methods
+- `is_verified()` → bool
+- `verify()` → marks status as VERIFIED
+
+---
+
+## 📋 Entity: Booking
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `booking_id` | UUID/String | Unique identifier |
+| `user_id` | String | Who made the booking |
+| `car_id` | String | Which car was booked |
+| `start_date` | DateTime | Pickup date/time |
+| `end_date` | DateTime | Expected return date/time |
+| `actual_return_date` | DateTime | When car was actually returned (for late fee) |
+| `booking_date` | DateTime | When booking was created |
+| `status` | BookingStatus | Reserved, Active, Completed, Cancelled |
+| `total_amount` | float | Total cost charged |
+| `late_fee` | float | Penalty if returned late (calculated at return) |
+
+### Key Decisions
+- **No branch_id:** We get it from Car (same-branch return enforced)
+- **actual_return_date:** Needed to calculate late fees
+- **late_fee separate:** Makes it clear what was penalty vs base cost
+
+### Methods
+- `calculate_total(daily_rate)` → float
+- `calculate_late_fee(penalty_per_day)` → float
+- `mark_active()`
+- `mark_completed(actual_return)`
+- `mark_cancelled()`
+
+---
+
+## 🏢 Entity: Branch
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `branch_id` | UUID/String | Unique identifier |
+| `name` | String | Branch name (e.g., "Airport Branch") |
+| `address` | String | Full address |
+| `cars` | List[Car] | Cars available at this branch |
+
+### Key Decisions
+- **cars as List:** Branch "owns" cars
+- **Methods are in BranchService:** Entity just holds data
+
+### Methods (Minimal - logic in Service)
+- `get_available_cars()` → List[Car]
+
+---
+
+## 💳 Entity: Payment (Simple)
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `payment_id` | UUID/String | Unique identifier |
+| `booking_id` | String | Which booking this payment is for |
+| `amount` | float | Amount paid |
+| `payment_date` | DateTime | When payment was made |
+| `status` | String | "SUCCESS" or "FAILED" |
+
+### Key Decisions
+- **Keep it simple:** No PaymentStrategy for this interview
+- **If asked about extensibility:** "I'd use Strategy Pattern for Credit Card, UPI, etc."
+
+---
+
+## 🔗 Entity Relationships
+
+```
+┌─────────┐       ┌─────────┐
+│  User   │───────│ Booking │
+└─────────┘  1:N  └─────────┘
+                       │
+                       │ N:1
+                       ▼
+                  ┌─────────┐
+                  │   Car   │
+                  └─────────┘
+                       │
+                       │ N:1
+                       ▼
+                  ┌─────────┐
+                  │ Branch  │
+                  └─────────┘
+```
+
+### Relationship Summary:
+| Relationship | Type | Description |
+|--------------|------|-------------|
+| User → Booking | 1:N | One user can have many bookings |
+| Car → Booking | 1:N | One car can have many bookings (over time) |
+| Branch → Car | 1:N | One branch has many cars |
+| Booking → Payment | 1:1 | One booking has one payment |
+
+---
+
+## 🛠️ Services (Logic Layer)
+
+### BookingService
+**Responsibility:** Orchestrate the booking flow
+
+**Methods:**
+| Method | Description |
+|--------|-------------|
+| `create_booking(user, car, start, end)` | Validate user, check availability, calculate cost, create booking |
+| `cancel_booking(booking_id)` | Cancel if before pickup, update status |
+| `complete_booking(booking_id, return_date)` | Mark completed, calculate late fee if any |
+| `get_user_bookings(user_id)` | List all bookings for a user |
+
+### SearchService
+**Responsibility:** Find available cars
+
+**Methods:**
+| Method | Description |
+|--------|-------------|
+| `search_cars(branch, start, end, car_type?)` | Find available cars for date range |
+| `get_available_cars(branch_id)` | All available cars at a branch |
+
+### PaymentService
+**Responsibility:** Handle payments
+
+**Methods:**
+| Method | Description |
+|--------|-------------|
+| `process_payment(booking, amount)` | Charge the user |
+| `process_refund(booking)` | Refund on cancellation |
+
+---
+
+## 🏛️ CarRentalSystem (Singleton - Main Facade)
+
+**Responsibility:** Entry point to the system, holds all branches and services
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `branches` | Dict[str, Branch] | All branches by ID |
+| `users` | Dict[str, User] | All registered users |
+| `bookings` | Dict[str, Booking] | All bookings |
+| `booking_service` | BookingService | Booking logic handler |
+| `search_service` | SearchService | Search logic handler |
+
+### Methods (Facade - delegates to services)
+| Method | Description |
+|--------|-------------|
+| `register_user(...)` | Create new user |
+| `add_branch(...)` | Add new branch |
+| `add_car(branch_id, car)` | Add car to branch |
+| `search_cars(...)` | Delegate to SearchService |
+| `book_car(...)` | Delegate to BookingService |
+| `return_car(...)` | Complete booking |
+| `cancel_booking(...)` | Cancel booking |
+
+---
+
+## 📐 Design Patterns Used
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **Singleton** | CarRentalSystem | Single entry point, manages all state |
+| **Strategy** | PricingStrategy (if needed) | Different pricing for different car types |
+| **State** | Booking lifecycle | Reserved → Active → Completed/Cancelled |
+| **Factory** | Creating Cars | If car creation becomes complex |
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums | No dependencies |
+| 2 | User, Car | Simple entities |
+| 3 | Branch | Contains Cars |
+| 4 | Booking | Depends on User, Car |
+| 5 | Services | Orchestrate entities |
+| 6 | CarRentalSystem | Ties everything together |
+
+**Think of it as:**
+```
+Enums → Simple Entities → Complex Entities → Services → Main System
+```
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+Before writing code, verify:
+- [ ] All entities have unique IDs
+- [ ] Status enums cover all states
+- [ ] Relationships are clear (1:1, 1:N, N:N)
+- [ ] Each entity has only data (no business logic)
+- [ ] Services handle all business logic
+- [ ] Singleton is used for the main system
+
+---
+
+*Document created during LLD interview prep session*

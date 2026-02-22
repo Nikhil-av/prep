@@ -1,0 +1,378 @@
+# COFFEE VENDING MACHINE - Entities, Attributes & Design Decisions
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🧠 Thinking Process: Identifying Entities
+
+### Step 1: Identify the "Nouns"
+- **Machine** — The vending machine itself
+- **Coffee** — The product being dispensed
+- **Ingredient** — What goes into coffee (beans, milk, water, sugar)
+- **Payment** — Coins inserted by user
+- **State** — Current mode of the machine
+
+### Step 2: Identify Patterns Needed
+| Pattern | Why |
+|---------|-----|
+| **State Pattern** | Machine behavior changes based on current state |
+| **Decorator Pattern** | Coffee customization (add sugar, extra milk) |
+| **Singleton** | Only one machine instance |
+
+---
+
+## 📦 Enums
+
+### Ingredient
+```python
+class Ingredient(Enum):
+    COFFEE = "COFFEE"
+    MILK = "MILK"
+    WATER = "WATER"
+    SUGAR = "SUGAR"
+```
+
+### Coin
+```python
+class Coin(Enum):
+    ONE = 1
+    TWO = 2
+    FIVE = 5
+    TEN = 10
+```
+
+---
+
+## ☕ Coffee Classes (Decorator Pattern)
+
+### Why Decorator Pattern?
+- Users can **customize** their coffee (add extra sugar, milk)
+- Each addition adds to the **cost** and **description**
+- Decorators **wrap** the base coffee and modify behavior
+
+### Class Hierarchy
+
+```
+        ┌─────────────────┐
+        │  Coffee (ABC)   │
+        ├─────────────────┤
+        │ + get_cost()    │
+        │ + get_desc()    │
+        │ + get_recipe()  │
+        └────────┬────────┘
+                 │
+    ┌────────────┼────────────┐
+    │            │            │
+┌───▼───┐   ┌────▼────┐   ┌───▼────┐
+│Espresso│   │  Latte  │   │Cappuccino│
+│  ₹30   │   │   ₹40   │   │   ₹50   │
+└────────┘   └─────────┘   └─────────┘
+
+        ┌─────────────────────┐
+        │ CoffeeDecorator(ABC)│ ◄── Also extends Coffee
+        ├─────────────────────┤
+        │ - wrapped: Coffee   │
+        │ + get_cost()        │
+        │ + get_desc()        │
+        └────────┬────────────┘
+                 │
+        ┌────────┴────────┐
+        │                 │
+┌───────▼──────┐  ┌───────▼──────┐
+│SugarDecorator│  │ MilkDecorator│
+│    +₹5       │  │    +₹10      │
+└──────────────┘  └──────────────┘
+```
+
+### Coffee (Abstract Base)
+
+| Attribute/Method | Type | Description |
+|------------------|------|-------------|
+| `get_cost()` | Abstract | Return total cost |
+| `get_description()` | Abstract | Return drink name |
+| `get_recipe()` | Abstract | Return {Ingredient: amount} |
+
+### Espresso (Concrete Coffee)
+
+| Attribute | Value |
+|-----------|-------|
+| Cost | ₹30 |
+| Recipe | {COFFEE: 2, WATER: 1, SUGAR: 1} |
+| Description | "Espresso" |
+
+### Latte (Concrete Coffee)
+
+| Attribute | Value |
+|-----------|-------|
+| Cost | ₹40 |
+| Recipe | {COFFEE: 1, MILK: 2, WATER: 1, SUGAR: 1} |
+| Description | "Latte" |
+
+### Cappuccino (Concrete Coffee)
+
+| Attribute | Value |
+|-----------|-------|
+| Cost | ₹50 |
+| Recipe | {COFFEE: 1, MILK: 1, WATER: 1, SUGAR: 2} |
+| Description | "Cappuccino" |
+
+### CoffeeDecorator (Abstract Decorator)
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `_wrapped_coffee` | Coffee | The coffee being decorated |
+| `get_cost()` | Method | Returns wrapped cost + own cost |
+| `get_description()` | Method | Returns wrapped desc + own desc |
+
+### SugarDecorator (Concrete Decorator)
+
+| Attribute | Value |
+|-----------|-------|
+| Extra Cost | ₹5 |
+| Extra Recipe | {SUGAR: 1} |
+| Description | " + Extra Sugar" |
+
+### MilkDecorator (Concrete Decorator)
+
+| Attribute | Value |
+|-----------|-------|
+| Extra Cost | ₹10 |
+| Extra Recipe | {MILK: 1} |
+| Description | " + Extra Milk" |
+
+### How Decoration Works
+
+```python
+# User orders Latte with extra sugar and milk
+coffee = Latte()                    # ₹40, "Latte"
+coffee = SugarDecorator(coffee)     # ₹45, "Latte + Extra Sugar"
+coffee = MilkDecorator(coffee)      # ₹55, "Latte + Extra Sugar + Extra Milk"
+
+print(coffee.get_cost())        # 55
+print(coffee.get_description()) # "Latte + Extra Sugar + Extra Milk"
+```
+
+---
+
+## 📊 IngredientInventory
+
+### Purpose
+Track ingredient levels and check if a coffee can be made.
+
+### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `_inventory` | Dict[Ingredient, int] | Current levels |
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `get_quantity(ingredient)` | Get current level |
+| `add_ingredient(ingredient, qty)` | Refill (admin) |
+| `use_ingredient(ingredient, qty)` | Deduct when making coffee |
+| `has_enough_for(recipe)` | Check if all ingredients available |
+
+### Key Decision: Centralized Inventory
+- Single `IngredientInventory` instance in the machine
+- All coffees and decorators check against same inventory
+- Prevents "Latte available" but actually no milk scenario
+
+---
+
+## 🔄 Machine States (State Pattern)
+
+### Why State Pattern?
+- Machine behavior depends on current state
+- Each state has different valid actions
+- Transitions are explicit and controlled
+
+### State Diagram
+
+```
+         ┌──────────────┐
+         │   IDLE       │ ◄── Machine waiting, display menu
+         └──────┬───────┘
+                │ selectCoffee()
+                ▼
+    ┌───────────────────────┐
+    │   AWAITING_PAYMENT    │ ◄── Waiting for coins
+    └───────────┬───────────┘
+                │ insertCoin() until amount >= price
+                ▼
+         ┌──────────────┐
+         │  DISPENSING  │ ◄── Making coffee
+         └──────┬───────┘
+                │ dispense complete
+                ▼
+         ┌──────────────┐
+         │    IDLE      │ ◄── Ready for next customer
+         └──────────────┘
+```
+
+### MachineState (Abstract)
+
+| Method | Description |
+|--------|-------------|
+| `select_coffee(machine, coffee)` | Handle coffee selection |
+| `insert_coin(machine, coin)` | Handle coin insertion |
+| `dispense(machine)` | Handle dispensing |
+| `cancel(machine)` | Handle cancellation |
+
+### IdleState
+
+| Action | Behavior |
+|--------|----------|
+| `select_coffee()` | ✅ Check availability, transition to AWAITING_PAYMENT |
+| `insert_coin()` | ❌ "Please select a coffee first" |
+| `dispense()` | ❌ "Please select a coffee first" |
+| `cancel()` | ❌ "Nothing to cancel" |
+
+### AwaitingPaymentState
+
+| Action | Behavior |
+|--------|----------|
+| `select_coffee()` | ❌ "Coffee already selected" |
+| `insert_coin()` | ✅ Add to total. If enough, transition to DISPENSING |
+| `dispense()` | ❌ "Please complete payment first" |
+| `cancel()` | ✅ Refund inserted amount, return to IDLE |
+
+### DispensingState
+
+| Action | Behavior |
+|--------|----------|
+| `select_coffee()` | ❌ "Please wait, dispensing" |
+| `insert_coin()` | ❌ "Please wait, dispensing" |
+| `dispense()` | ✅ Make coffee, deduct ingredients, return to IDLE |
+| `cancel()` | ❌ "Cannot cancel, already dispensing" |
+
+---
+
+## 🏭 CoffeeVendingMachine (Singleton)
+
+### Purpose
+Main orchestrator that ties everything together.
+
+### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `_instance` | Class variable | Singleton instance |
+| `current_state` | MachineState | Current state object |
+| `inventory` | IngredientInventory | Ingredient levels |
+| `selected_coffee` | Coffee | Currently selected coffee |
+| `inserted_amount` | int | Money inserted so far |
+| `available_coffees` | List[Coffee] | Menu items |
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `select_coffee(coffee_type)` | Delegate to current state |
+| `insert_coin(coin)` | Delegate to current state |
+| `dispense()` | Delegate to current state |
+| `cancel()` | Delegate to current state |
+| `set_state(state)` | Change current state |
+| `reset()` | Clear selection, reset amount |
+
+### Key Decision: Singleton
+- Only ONE machine instance
+- State is shared across all operations
+- If asked about multiple machines: "Add a VendingMachineManager"
+
+---
+
+## 📝 Design Decisions Summary
+
+| Decision | Choice | Reasoning |
+|----------|--------|-----------|
+| Payment | Exact amount only | Simplifies design, no change dispenser |
+| Customization | Decorator Pattern | Clean way to add extras without modifying base classes |
+| Machine states | State Pattern | Clear transitions, each state handles its own logic |
+| Coffee types | Class hierarchy | Could use enum + data, but classes allow recipe encapsulation |
+| Inventory | Centralized | Single source of truth for all ingredients |
+| Cash Box | Not needed | Exact payment, no change tracking |
+
+---
+
+## 🔗 Full Class Relationships
+
+```
+┌─────────────────────────────┐
+│   CoffeeVendingMachine      │ (Singleton)
+├─────────────────────────────┤
+│ - current_state             │───► MachineState
+│ - inventory                 │───► IngredientInventory
+│ - selected_coffee           │───► Coffee
+│ - inserted_amount           │
+│ - available_coffees         │───► List[Coffee]
+├─────────────────────────────┤
+│ + select_coffee()           │
+│ + insert_coin()             │
+│ + dispense()                │
+│ + cancel()                  │
+└─────────────────────────────┘
+
+┌─────────────────────────────┐
+│   IngredientInventory       │
+├─────────────────────────────┤
+│ - inventory: Dict           │
+├─────────────────────────────┤
+│ + has_enough_for(recipe)    │
+│ + use_ingredient()          │
+│ + add_ingredient()          │
+└─────────────────────────────┘
+
+┌─────────────────────────────┐
+│   MachineState (ABC)        │
+├─────────────────────────────┤
+│ + select_coffee()           │
+│ + insert_coin()             │
+│ + dispense()                │
+│ + cancel()                  │
+└─────────────────────────────┘
+         △
+         │
+    ┌────┴────┬────────────┐
+    │         │            │
+┌───┴───┐ ┌───┴───┐ ┌──────┴──────┐
+│ Idle  │ │Awaiting│ │ Dispensing  │
+│ State │ │Payment │ │   State     │
+└───────┘ │ State  │ └─────────────┘
+          └────────┘
+```
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums (Ingredient, Coin) | No dependencies |
+| 2 | Coffee (abstract) | Base for decorators |
+| 3 | Espresso, Latte, Cappuccino | Concrete coffees |
+| 4 | CoffeeDecorator (abstract) | Decorator base |
+| 5 | SugarDecorator, MilkDecorator | Concrete decorators |
+| 6 | IngredientInventory | Needed by machine |
+| 7 | MachineState (abstract) | State pattern base |
+| 8 | IdleState, AwaitingPaymentState, DispensingState | Concrete states |
+| 9 | CoffeeVendingMachine (Singleton) | Ties everything together |
+| 10 | Demo | Prove it works |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] Decorator adds to cost correctly
+- [ ] Decorator adds to recipe correctly
+- [ ] Inventory checks all ingredients in recipe
+- [ ] Each state handles only valid actions
+- [ ] Invalid actions print error, don't crash
+- [ ] State transitions are correct
+- [ ] Singleton prevents multiple instances
+- [ ] Demo shows full flow
+
+---
+
+*Document created during LLD interview prep session*

@@ -1,0 +1,21 @@
+Entities
+
+ATM - Singleton - cashinventory, currentstate, nextstat
+ATMState - abstract class
+IdleState - concrete class
+hasCardState - concrete class
+AuthenticatedState - concrete class
+CardWithdrawState - concrete class
+
+Transaction
+CashInventory
+NoteDispenser - abstract class
+Note100Dispenser
+Note50Dispenser
+Note20Dispenser
+Note10Dispenser
+
+BankService
+Account
+Card
+User

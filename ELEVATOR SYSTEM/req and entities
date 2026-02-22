@@ -1,0 +1,394 @@
+# ELEVATOR SYSTEM - Requirements & Entities
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🎯 Problem Statement
+Design an **Elevator System** for a building with:
+- Multiple floors
+- Multiple elevators
+- Handle external requests (floor buttons) and internal requests (destination buttons)
+- Efficient scheduling/dispatching
+
+---
+
+## 🗣️ Clarifying Questions & Answers
+
+### 1. WHO — Actors
+
+| Actor | Role |
+|-------|------|
+| **Passenger** | Requests elevator, enters destination |
+| **Elevator** | Moves between floors, serves requests |
+| **ElevatorController** | Dispatches requests to elevators |
+
+---
+
+### 2. WHAT — Request Types
+
+| Request Type | Where | Example |
+|--------------|-------|---------|
+| **External Request** | Floor button (UP/DOWN) | Person at Floor 5 presses UP |
+| **Internal Request** | Inside elevator | Person in elevator presses Floor 8 |
+
+---
+
+### 3. HOW — Main Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Person at Floor 5 presses UP button                      │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. Controller receives ExternalRequest(floor=5, dir=UP)     │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Dispatcher selects best elevator using Strategy          │
+│    (Nearest + Same Direction)                               │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. Elevator adds Floor 5 to pending stops                   │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 5. Elevator arrives at Floor 5, opens door                  │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 6. Person enters, presses Floor 8 (InternalRequest)         │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 7. Elevator adds Floor 8 to pending stops                   │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 8. Elevator moves to Floor 8, opens door, person exits      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 4. Elevator States
+
+| State | Description |
+|-------|-------------|
+| **IDLE** | Not moving, no pending requests |
+| **MOVING_UP** | Moving upward, may have stops |
+| **MOVING_DOWN** | Moving downward, may have stops |
+
+---
+
+### 5. Scheduling Strategies
+
+| Strategy | Logic |
+|----------|-------|
+| **Nearest Elevator** | Pick closest elevator |
+| **Same Direction First** | Prefer elevator already going toward request |
+| **Least Loaded** | Pick elevator with fewest pending stops |
+
+**For Interview:** Implement **Nearest + Same Direction**
+
+```
+Priority:
+1. Same direction + nearest
+2. Idle + nearest
+3. Any available
+```
+
+---
+
+### 6. LIMITS
+
+| Constraint | Value |
+|------------|-------|
+| Floors | Configurable (e.g., 10) |
+| Elevators | Configurable (e.g., 2-4) |
+| Capacity | Out of scope |
+| Speed | Same for all elevators |
+
+---
+
+### 7. FAILS & Edge Cases
+
+| Scenario | Handling |
+|----------|----------|
+| All elevators busy | Queue request until one is available |
+| Request for current floor | Open door immediately if idle |
+| Same floor requested multiple times | Ignore duplicate |
+| Elevator at top/bottom floor | Can only go opposite direction |
+
+---
+
+## ✅ Final Scope
+
+| Aspect | Decision |
+|--------|----------|
+| **Elevators** | Multiple (configurable) |
+| **Floors** | Configurable |
+| **Requests** | External (floor UP/DOWN) + Internal (destination) |
+| **States** | IDLE, MOVING_UP, MOVING_DOWN |
+| **Scheduling** | Strategy pattern |
+| **Door handling** | Simplified (open/close) |
+| **Capacity** | Out of scope |
+
+---
+
+## 💡 Design Patterns
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **State** | Elevator behavior changes by state | Different actions in IDLE vs MOVING |
+| **Strategy** | Dispatch algorithm | Swap scheduling algorithms |
+| **Singleton** | ElevatorController | One controller for building |
+| **Observer** | Display updates | Optional - notify floor displays |
+
+---
+
+## 📦 Entities
+
+### Enums
+
+```python
+class Direction(Enum):
+    UP = 1
+    DOWN = -1
+    IDLE = 0
+
+class ElevatorState(Enum):
+    IDLE = "IDLE"
+    MOVING_UP = "MOVING_UP"
+    MOVING_DOWN = "MOVING_DOWN"
+```
+
+---
+
+### Request
+
+```python
+class Request:
+    floor: int
+    direction: Direction  # For external requests
+    # OR
+    destination: int  # For internal requests
+```
+
+**Or separate classes:**
+
+```python
+class ExternalRequest:
+    floor: int
+    direction: Direction
+
+class InternalRequest:
+    destination: int
+```
+
+---
+
+### Elevator
+
+```python
+class Elevator:
+    id: int
+    current_floor: int
+    state: ElevatorState
+    direction: Direction
+    pending_stops: Set[int]  # Floors to stop at
+    
+    def add_stop(self, floor: int)
+    def move(self)  # Move one floor in current direction
+    def open_door(self)
+    def close_door(self)
+    def get_direction_to(self, floor: int) -> Direction
+```
+
+**Key Logic:**
+```python
+def move(self):
+    if not self.pending_stops:
+        self.state = ElevatorState.IDLE
+        return
+    
+    if self.direction == Direction.UP:
+        self.current_floor += 1
+    else:
+        self.current_floor -= 1
+    
+    if self.current_floor in self.pending_stops:
+        self.open_door()
+        self.pending_stops.remove(self.current_floor)
+```
+
+---
+
+### DispatchStrategy (Strategy Pattern)
+
+```python
+class DispatchStrategy(ABC):
+    @abstractmethod
+    def select_elevator(self, elevators: List[Elevator], 
+                        floor: int, direction: Direction) -> Elevator:
+        pass
+
+class NearestElevatorStrategy(DispatchStrategy):
+    def select_elevator(self, elevators, floor, direction):
+        # 1. Filter elevators going same direction OR idle
+        # 2. Pick nearest among them
+        # 3. If none, pick any nearest
+        pass
+```
+
+---
+
+### ElevatorController (Singleton)
+
+```python
+class ElevatorController:
+    _instance = None  # Singleton
+    
+    elevators: List[Elevator]
+    dispatch_strategy: DispatchStrategy
+    
+    def request_elevator(self, floor: int, direction: Direction):
+        # External request from floor
+        elevator = self.dispatch_strategy.select_elevator(
+            self.elevators, floor, direction
+        )
+        elevator.add_stop(floor)
+    
+    def select_floor(self, elevator_id: int, floor: int):
+        # Internal request from inside elevator
+        elevator = self.get_elevator(elevator_id)
+        elevator.add_stop(floor)
+    
+    def step(self):
+        # Simulate one time unit - all elevators move
+        for elevator in self.elevators:
+            elevator.move()
+```
+
+---
+
+## 🔗 Entity Relationships
+
+```
+┌──────────────────────┐
+│ ElevatorController   │ (Singleton)
+│ - elevators          │
+│ - dispatch_strategy  │
+└──────────┬───────────┘
+           │ 1:N
+           ▼
+┌──────────────────────┐
+│     Elevator         │
+│ - current_floor      │
+│ - state              │
+│ - pending_stops      │
+└──────────────────────┘
+           │
+           │ uses
+           ▼
+┌──────────────────────┐
+│  DispatchStrategy    │ (Strategy)
+├──────────────────────┤
+│ NearestElevator      │
+│ LeastLoaded          │
+└──────────────────────┘
+```
+
+---
+
+## 🎬 Use Cases
+
+### Use Case 1: External Request (Floor Button)
+1. Person at Floor 5 presses UP
+2. Controller receives request (floor=5, direction=UP)
+3. Dispatcher selects Elevator 1 (nearest, going up)
+4. Elevator 1 adds Floor 5 to stops
+5. Elevator 1 arrives, opens door
+
+### Use Case 2: Internal Request (Destination)
+1. Person inside Elevator 1 presses Floor 8
+2. Elevator 1 adds Floor 8 to stops
+3. Elevator 1 arrives at Floor 8, opens door
+
+### Use Case 3: Multiple Requests
+1. Person at Floor 2 presses UP
+2. Person at Floor 7 presses DOWN
+3. Dispatcher assigns different elevators based on strategy
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Pattern |
+|------|------|---------|
+| 1 | Enums (Direction, ElevatorState) | - |
+| 2 | Request classes | - |
+| 3 | Elevator with state, stops | - |
+| 4 | DispatchStrategy | Strategy |
+| 5 | NearestElevatorStrategy | Strategy impl |
+| 6 | ElevatorController | Singleton |
+| 7 | Simulation/Demo | - |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] Direction enum (UP, DOWN, IDLE)
+- [ ] ElevatorState enum (IDLE, MOVING_UP, MOVING_DOWN)
+- [ ] Elevator with current_floor, pending_stops
+- [ ] Elevator.add_stop(), move(), open_door()
+- [ ] DispatchStrategy (abstract)
+- [ ] NearestElevatorStrategy (implementation)
+- [ ] ElevatorController (Singleton)
+- [ ] request_elevator() for external requests
+- [ ] select_floor() for internal requests
+- [ ] step() for simulation
+- [ ] Demo with multiple requests
+
+---
+
+## ⚠️ Common Mistakes
+
+| Mistake | Better Approach |
+|---------|-----------------|
+| No direction tracking | Elevator must know UP/DOWN/IDLE |
+| Random elevator selection | Use dispatch strategy |
+| No pending stops management | Use Set to avoid duplicates |
+| Complex state machine | Keep simple: 3 states enough |
+
+---
+
+## 💡 Key Insight: Pending Stops
+
+Instead of complex request queues, use a **Set of floors to stop at**:
+
+```python
+pending_stops = {5, 8, 12}  # Just floor numbers
+
+# Add stop
+pending_stops.add(7)
+
+# Check if should stop
+if current_floor in pending_stops:
+    open_door()
+    pending_stops.remove(current_floor)
+```
+
+**Simple and efficient!**
+
+---
+
+*Document created during LLD interview prep session*

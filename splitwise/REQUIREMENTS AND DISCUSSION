@@ -1,0 +1,456 @@
+# SPLITWISE - Requirement Clarification & Discussion
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🎯 Problem Statement
+Design **Splitwise** — an expense sharing application where users can add expenses, split bills among friends/groups, track balances, settle debts, and receive notifications.
+
+---
+
+## 🗣️ Clarifying Questions & Answers
+
+### 1. WHO — Actors
+
+| Actor | Role |
+|-------|------|
+| **User** | Create expenses, split bills, settle up |
+| **Group Admin** | Create/manage groups (optional) |
+| **System** | Track balances, send notifications |
+
+---
+
+### 2. WHAT — Core Entities
+
+| Entity | Description |
+|--------|-------------|
+| **User** | Has name, email, balance sheet |
+| **Group** | Collection of users for shared expenses |
+| **Expense** | Amount paid by someone, split among others |
+| **Split** | Individual's share in an expense |
+| **Balance** | Net amount between two users |
+
+---
+
+### 3. HOW — Split Types
+
+| Split Type | Description | Example |
+|------------|-------------|---------|
+| **EQUAL** | Divide equally | ₹300 ÷ 3 = ₹100 each |
+| **EXACT** | Specify exact amounts | A: ₹150, B: ₹100, C: ₹50 |
+| **PERCENTAGE** | Specify percentages | A: 50%, B: 30%, C: 20% |
+
+**Use Strategy Pattern for split calculation!**
+
+---
+
+### 4. Balance Tracking
+
+**Net Balance Concept:**
+- If Alice paid ₹300 for Bob → Bob owes Alice ₹300
+- Later Bob paid ₹100 for Alice → Alice owes Bob ₹100
+- Net: Bob owes Alice ₹200
+
+**Storage:**
+```
+balances = {
+    (Alice, Bob): 200,   # Bob owes Alice ₹200
+    (Alice, Charlie): 100,  # Charlie owes Alice ₹100
+}
+```
+
+Or simpler: Each user has a balance map:
+```
+alice.balances = {bob_id: 200, charlie_id: 100}
+bob.balances = {alice_id: -200}  # Negative = I owe
+```
+
+---
+
+### 5. Settlements
+
+When Bob pays Alice ₹200:
+- Record as a settlement
+- Update balances: Alice-Bob balance becomes 0
+- Send notifications
+
+---
+
+### 6. Notifications (Observer Pattern)
+
+| Event | Notification |
+|-------|--------------|
+| Expense added | "Alice added ₹300 for Dinner. You owe ₹100" |
+| Settlement received | "Bob settled ₹200 with you" |
+| Reminder | "You owe Alice ₹100" |
+
+**Use Observer Pattern:**
+- User subscribes to notifications
+- NotificationService notifies on events
+- Multiple channels: Email, SMS, Push (Strategy)
+
+---
+
+### 7. LIMITS & FAILS
+
+| Scenario | Handling |
+|----------|----------|
+| Split doesn't add up | Validate: sum of splits = total amount |
+| Negative amount | Reject |
+| Percentage > 100% | Reject |
+| User not in group | Can't add expense for non-members |
+
+---
+
+## ✅ Final Scope
+
+| Aspect | Decision |
+|--------|----------|
+| **Users** | Create, list, get balances |
+| **Groups** | Optional grouping of users |
+| **Expenses** | Add with split type |
+| **Split Types** | EQUAL, EXACT, PERCENTAGE (Strategy) |
+| **Balances** | Track per user-pair |
+| **Settlements** | Record payments between users |
+| **Notifications** | Observer pattern, multiple channels |
+| **Simplify Debts** | Optional extension |
+
+---
+
+## 💡 Design Patterns
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **Strategy** | Split calculation | Different split algorithms |
+| **Strategy** | Notification channel | Email, SMS, Push |
+| **Observer** | Notifications | Notify users on events |
+| **Singleton** | SplitwiseService | Single instance |
+| **Factory** | Create splits | Based on split type |
+
+---
+
+## 📦 Entities
+
+### Enums
+
+```python
+class SplitType(Enum):
+    EQUAL = "EQUAL"
+    EXACT = "EXACT"
+    PERCENTAGE = "PERCENTAGE"
+
+class NotificationType(Enum):
+    EXPENSE_ADDED = "EXPENSE_ADDED"
+    SETTLEMENT = "SETTLEMENT"
+    REMINDER = "REMINDER"
+```
+
+---
+
+### User
+
+```python
+class User:
+    user_id: int
+    name: str
+    email: str
+    phone: str
+    balances: Dict[user_id, float]  # Positive = they owe me
+    
+    def update_balance(self, other_user_id, amount):
+        # Positive amount = they owe me more
+        # Negative amount = I owe them more
+        pass
+    
+    def get_total_balance(self) -> float:
+        # Sum of all balances (positive = net owed to me)
+        pass
+```
+
+---
+
+### Expense
+
+```python
+class Expense:
+    expense_id: int
+    description: str
+    amount: float
+    paid_by: User
+    splits: List[Split]  # Who owes what
+    split_type: SplitType
+    created_at: datetime
+    group: Group (optional)
+```
+
+---
+
+### Split (Abstract + Subclasses)
+
+```python
+class Split(ABC):
+    user: User
+    amount: float  # What this user owes
+
+class EqualSplit(Split):
+    # Amount calculated automatically
+
+class ExactSplit(Split):
+    # Amount specified directly
+
+class PercentSplit(Split):
+    percent: float  # Amount calculated from percent
+```
+
+---
+
+### Group
+
+```python
+class Group:
+    group_id: int
+    name: str
+    members: List[User]
+    expenses: List[Expense]
+    
+    def add_member(self, user): ...
+    def add_expense(self, expense): ...
+    def get_group_balances(self): ...
+```
+
+---
+
+### SplitStrategy (Strategy Pattern)
+
+```python
+class SplitStrategy(ABC):
+    @abstractmethod
+    def calculate_splits(self, amount: float, users: List[User], 
+                         split_details: dict) -> List[Split]:
+        pass
+
+class EqualSplitStrategy(SplitStrategy):
+    def calculate_splits(self, amount, users, split_details):
+        per_person = amount / len(users)
+        return [EqualSplit(user, per_person) for user in users]
+
+class ExactSplitStrategy(SplitStrategy):
+    def calculate_splits(self, amount, users, split_details):
+        # split_details = {user_id: exact_amount}
+        # Validate sum == amount
+        pass
+
+class PercentSplitStrategy(SplitStrategy):
+    def calculate_splits(self, amount, users, split_details):
+        # split_details = {user_id: percentage}
+        # Validate sum == 100
+        pass
+```
+
+---
+
+### NotificationObserver (Observer Pattern)
+
+```python
+class NotificationObserver(ABC):
+    @abstractmethod
+    def notify(self, user: User, message: str):
+        pass
+
+class EmailNotification(NotificationObserver):
+    def notify(self, user, message):
+        print(f"📧 Email to {user.email}: {message}")
+
+class SMSNotification(NotificationObserver):
+    def notify(self, user, message):
+        print(f"📱 SMS to {user.phone}: {message}")
+
+class PushNotification(NotificationObserver):
+    def notify(self, user, message):
+        print(f"🔔 Push to {user.name}: {message}")
+```
+
+---
+
+### NotificationService (Publisher)
+
+```python
+class NotificationService:
+    observers: List[NotificationObserver]
+    
+    def add_observer(self, observer):
+        self.observers.append(observer)
+    
+    def notify_expense_added(self, expense: Expense):
+        for split in expense.splits:
+            if split.user != expense.paid_by:
+                message = f"{expense.paid_by.name} added {expense.description}. You owe ₹{split.amount}"
+                for observer in self.observers:
+                    observer.notify(split.user, message)
+    
+    def notify_settlement(self, payer: User, payee: User, amount: float):
+        message = f"{payer.name} paid you ₹{amount}"
+        for observer in self.observers:
+            observer.notify(payee, message)
+```
+
+---
+
+### SplitwiseService (Main Facade)
+
+```python
+class SplitwiseService:
+    _instance = None  # Singleton
+    
+    users: Dict[user_id, User]
+    groups: Dict[group_id, Group]
+    expenses: List[Expense]
+    notification_service: NotificationService
+    
+    def add_user(self, name, email, phone) -> User
+    def create_group(self, name, member_ids) -> Group
+    def add_expense(self, paid_by, amount, description, 
+                    split_type, split_among, split_details) -> Expense
+    def settle_up(self, payer_id, payee_id, amount)
+    def get_balances(self, user_id) -> Dict[user_id, float]
+    def show_all_balances()
+```
+
+---
+
+## 🎬 Core Use Cases
+
+### Use Case 1: Add Equal Split Expense
+```
+Alice pays ₹300 for dinner, split among Alice, Bob, Charlie
+
+1. Create expense (amount=300, paid_by=Alice)
+2. Calculate splits: 300/3 = 100 each
+3. Update balances:
+   - Bob owes Alice ₹100
+   - Charlie owes Alice ₹100
+   - (Alice owes herself ₹100 — ignored)
+4. Send notifications to Bob, Charlie
+```
+
+### Use Case 2: Add Exact Split Expense
+```
+Bob pays ₹200 for movie, exact split:
+- Alice: ₹50
+- Bob: ₹100
+- Charlie: ₹50
+
+1. Validate: 50 + 100 + 50 = 200 ✅
+2. Update balances:
+   - Alice owes Bob ₹50
+   - Charlie owes Bob ₹50
+3. Send notifications
+```
+
+### Use Case 3: Settlement
+```
+Charlie settles ₹100 with Alice
+
+1. Validate: Charlie owes Alice ≥ ₹100
+2. Update balance: Charlie-Alice reduced by ₹100
+3. Notify Alice
+```
+
+### Use Case 4: View Balances
+```
+Alice checks her balances:
+- Bob owes you: ₹50
+- Charlie owes you: ₹100
+- You owe David: ₹30
+- Net: You are owed ₹120
+```
+
+---
+
+## 🔗 Entity Relationships
+
+```
+┌──────────────┐
+│    User      │
+│ - balances   │
+└──────┬───────┘
+       │ M:N (through Group)
+       ▼
+┌──────────────┐
+│    Group     │
+│ - members    │
+│ - expenses   │
+└──────┬───────┘
+       │ 1:N
+       ▼
+┌──────────────┐
+│   Expense    │
+│ - paid_by    │
+│ - splits     │
+└──────┬───────┘
+       │ 1:N
+       ▼
+┌──────────────┐
+│    Split     │ (Equal/Exact/Percent)
+│ - user       │
+│ - amount     │
+└──────────────┘
+
+┌──────────────────────┐
+│ NotificationService  │ (Publisher)
+└──────────┬───────────┘
+           │ notifies
+           ▼
+┌──────────────────────┐
+│ Notification Observer│ (Email/SMS/Push)
+└──────────────────────┘
+```
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Pattern |
+|------|------|---------|
+| 1 | Enums (SplitType) | - |
+| 2 | User with balances | - |
+| 3 | Split classes | Inheritance |
+| 4 | SplitStrategy | Strategy |
+| 5 | Expense | - |
+| 6 | Group | - |
+| 7 | NotificationObserver | Observer |
+| 8 | NotificationService | Publisher |
+| 9 | SplitwiseService | Singleton + Facade |
+| 10 | Demo | - |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] SplitType enum
+- [ ] User with balances dict
+- [ ] Split abstract + EqualSplit, ExactSplit, PercentSplit
+- [ ] SplitStrategy for each type
+- [ ] Expense with validation
+- [ ] Group with members and expenses
+- [ ] NotificationObserver (Email, SMS, Push)
+- [ ] NotificationService (publisher)
+- [ ] SplitwiseService (main facade)
+- [ ] Balance update logic
+- [ ] Settlement logic
+- [ ] Demo with multiple scenarios
+
+---
+
+## ⚠️ Common Mistakes
+
+| Mistake | Better Approach |
+|---------|-----------------|
+| No split validation | Validate sum = total amount |
+| Balance as single value | Track per user-pair |
+| No notification on events | Use Observer pattern |
+| Tight coupling | Use Strategy for split types |
+
+---
+
+*Document created during LLD interview prep session*

@@ -1,0 +1,392 @@
+# ONLINE LEARNING PLATFORM - Entities & Design Decisions
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🧠 Design Decision: Simplified Content
+
+### Why No VideoContent/TextContent Classes?
+
+| Content | Class Needed? | Reasoning |
+|---------|---------------|-----------|
+| **Video** | ❌ No | Just `url` + `duration` — 2 simple attributes |
+| **Text** | ❌ No | Just a `string` — 1 attribute |
+| **Quiz** | ✅ Yes | Has questions, needs `calculate_score()` method |
+
+**Rule of Thumb:** Create a class when you have:
+- Multiple related attributes, AND
+- Behavior/methods needed, OR
+- Will be reused independently
+
+Video and Text don't meet this criteria for a simple system.
+
+---
+
+## 📦 Final Entity List
+
+### Enums
+
+```python
+class EnrollmentStatus(Enum):
+    ENROLLED = "ENROLLED"      # Currently taking course
+    COMPLETED = "COMPLETED"    # Finished all content + passed quizzes
+    DROPPED = "DROPPED"        # Left the course
+
+class UserRole(Enum):
+    STUDENT = "STUDENT"
+    INSTRUCTOR = "INSTRUCTOR"
+```
+
+---
+
+## 👤 User
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| user_id | int | Unique identifier |
+| name | str | Full name |
+| email | str | Email (unique) |
+| role | UserRole | STUDENT or INSTRUCTOR |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `get_enrolled_courses()` | For students: courses they're taking |
+| `get_created_courses()` | For instructors: courses they created |
+
+---
+
+## 📚 Course
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| course_id | int | Unique identifier |
+| title | str | Course name |
+| description | str | Course description |
+| price | float | Price (0 = free) |
+| instructor | User | Who created it |
+| modules | List[Module] | Ordered list of modules |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `add_module(module)` | Add a module to course |
+| `get_all_submodules()` | Flatten all submodules |
+| `get_all_quizzes()` | Get all quizzes in course |
+| `is_free()` | Returns price == 0 |
+
+### Key Decision: No CourseType Enum
+```python
+# ❌ Don't do this
+class CourseType(Enum):
+    FREE = "FREE"
+    PAID = "PAID"
+
+# ✅ Do this
+class Course:
+    price: float  # 0 = free, >0 = paid
+    
+    def is_free(self) -> bool:
+        return self.price == 0
+```
+
+---
+
+## 📁 Module
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| module_id | int | Unique identifier |
+| title | str | Module name (e.g., "Introduction") |
+| order | int | Position in course (1, 2, 3...) |
+| submodules | List[Submodule] | Ordered submodules |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `add_submodule(submodule)` | Add a submodule |
+| `get_quizzes()` | Get all quizzes in this module |
+
+---
+
+## 📄 Submodule (Lesson)
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| submodule_id | int | Unique identifier |
+| title | str | Submodule name |
+| order | int | Position in module (1, 2, 3...) |
+| video_url | str (optional) | URL to video |
+| video_duration | int | Duration in minutes (0 if no video) |
+| text_content | str (optional) | Text/article content |
+| quiz | Quiz (optional) | Quiz object |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `has_video()` | Returns video_url is not None |
+| `has_text()` | Returns text_content is not None |
+| `has_quiz()` | Returns quiz is not None |
+
+### Example:
+```python
+submodule = Submodule(1, "Python Variables", order=1)
+submodule.video_url = "https://youtube.com/..."
+submodule.video_duration = 10
+submodule.text_content = "Variables store data..."
+submodule.quiz = Quiz(questions=[...], passing_score=70)
+
+print(submodule.has_video())  # True
+print(submodule.has_quiz())   # True
+```
+
+---
+
+## ❓ Quiz
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| quiz_id | int | Unique identifier |
+| title | str | Quiz title |
+| questions | List[Question] | List of questions |
+| passing_score | int | Minimum % to pass (default 70) |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `add_question(question)` | Add a question |
+| `calculate_score(answers)` | Calculate score from student answers |
+| `is_passed(score)` | Returns score >= passing_score |
+
+### Example:
+```python
+quiz = Quiz(quiz_id=1, title="Variables Quiz", passing_score=70)
+quiz.add_question(Question("What is x = 5?", ["Variable", "Function"], 0))
+
+student_answers = {1: 0}  # question_id: selected_option
+score = quiz.calculate_score(student_answers)  # 100
+passed = quiz.is_passed(score)  # True
+```
+
+---
+
+## ❔ Question
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| question_id | int | Unique identifier |
+| text | str | Question text |
+| options | List[str] | Answer options |
+| correct_option | int | Index of correct answer (0-based) |
+
+### Example:
+```python
+q = Question(
+    question_id=1,
+    text="Which is a data type in Python?",
+    options=["int", "for", "def", "print"],
+    correct_option=0  # "int" is correct
+)
+```
+
+---
+
+## 📝 Enrollment
+
+### Purpose
+Links a Student to a Course and tracks their progress.
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| enrollment_id | int | Unique identifier |
+| student | User | The student |
+| course | Course | The course |
+| status | EnrollmentStatus | ENROLLED/COMPLETED/DROPPED |
+| enrolled_at | datetime | When they enrolled |
+| submodule_progress | Dict[int, bool] | submodule_id → completed |
+| quiz_scores | Dict[int, float] | quiz_id → best score |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `mark_submodule_complete(id)` | Mark a submodule as done |
+| `record_quiz_score(id, score)` | Record quiz attempt (keeps best) |
+| `get_progress_percent()` | Overall completion % |
+| `is_course_complete()` | All submodules + all quizzes passed? |
+| `complete_course()` | Mark as COMPLETED, issue certificate |
+
+### Progress Calculation:
+```python
+def get_progress_percent(self) -> float:
+    total_submodules = len(self.submodule_progress)
+    completed = sum(1 for done in self.submodule_progress.values() if done)
+    return (completed / total_submodules) * 100 if total_submodules > 0 else 0
+
+def is_course_complete(self) -> bool:
+    all_submodules_done = all(self.submodule_progress.values())
+    all_quizzes_passed = all(score >= 70 for score in self.quiz_scores.values())
+    return all_submodules_done and all_quizzes_passed
+```
+
+---
+
+## 🎓 Certificate
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| certificate_id | int | Unique identifier |
+| student | User | Who earned it |
+| course | Course | Which course |
+| issued_at | datetime | When issued |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `generate()` | Create certificate (return as string/object) |
+
+### Example Output:
+```
+═══════════════════════════════════════
+         CERTIFICATE OF COMPLETION
+═══════════════════════════════════════
+This certifies that
+
+            NIKHIL
+
+has successfully completed
+
+       "Python Masterclass"
+
+Instructor: John Doe
+Date: 2024-01-31
+═══════════════════════════════════════
+```
+
+---
+
+## 🏛️ LearningPlatform (Main Facade)
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| users | Dict[int, User] | All users |
+| courses | Dict[int, Course] | All courses |
+| enrollments | List[Enrollment] | All enrollments |
+| certificates | List[Certificate] | All certificates |
+
+### Methods
+
+**User Management:**
+| Method | Description |
+|--------|-------------|
+| `register_user(name, email, role)` | Create new user |
+| `get_user(user_id)` | Get user by ID |
+
+**Course Management:**
+| Method | Description |
+|--------|-------------|
+| `create_course(title, price, instructor)` | Create new course |
+| `get_course(course_id)` | Get course by ID |
+| `get_all_courses()` | List all courses |
+
+**Enrollment:**
+| Method | Description |
+|--------|-------------|
+| `enroll(student, course)` | Enroll student in course |
+| `get_enrollment(student, course)` | Get enrollment record |
+
+**Progress:**
+| Method | Description |
+|--------|-------------|
+| `complete_submodule(enrollment, submodule_id)` | Mark submodule done |
+| `submit_quiz(enrollment, quiz, answers)` | Submit quiz answers |
+| `check_completion(enrollment)` | Check if course complete |
+
+---
+
+## 🔗 Entity Relationships
+
+```
+┌──────────────┐         ┌──────────────┐
+│  Instructor  │─────────│    Course    │
+│    (User)    │   1:N   │              │
+└──────────────┘         └──────────────┘
+                               │
+                               │ 1:N
+                               ▼
+                         ┌──────────────┐
+                         │    Module    │
+                         └──────────────┘
+                               │
+                               │ 1:N
+                               ▼
+                         ┌──────────────┐
+                         │  Submodule   │
+                         │ ──────────── │
+                         │ video_url    │
+                         │ text_content │
+                         │ quiz ────────┼──► Quiz ──► Questions
+                         └──────────────┘
+
+┌──────────────┐         ┌──────────────┐
+│   Student    │─────────│  Enrollment  │
+│    (User)    │   1:N   │ ──────────── │
+└──────────────┘         │ progress     │
+                         │ quiz_scores  │
+                         └──────────────┘
+                               │
+                               │ N:1
+                               ▼
+                         ┌──────────────┐
+                         │    Course    │
+                         └──────────────┘
+
+┌──────────────┐         ┌──────────────┐
+│   Student    │─────────│  Certificate │
+└──────────────┘   1:N   └──────────────┘
+```
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums | No dependencies |
+| 2 | Question | Simplest class |
+| 3 | Quiz | Uses Question |
+| 4 | Submodule | Has optional Quiz |
+| 5 | Module | Contains Submodules |
+| 6 | User | Standalone |
+| 7 | Course | Uses Module, User |
+| 8 | Enrollment | Links User + Course |
+| 9 | Certificate | Uses User + Course |
+| 10 | LearningPlatform | Main facade |
+| 11 | Demo | Prove it works |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] Enums: EnrollmentStatus, UserRole
+- [ ] Question with options and correct answer
+- [ ] Quiz with calculate_score and is_passed
+- [ ] Submodule with optional video/text/quiz
+- [ ] Module with ordered submodules
+- [ ] Course with price (0 = free)
+- [ ] User with role (STUDENT/INSTRUCTOR)
+- [ ] Enrollment tracks progress + quiz scores
+- [ ] Certificate generated on completion
+- [ ] Demo shows full flow: create → enroll → learn → quiz → certificate
+
+---
+
+*Document created during LLD interview prep session*

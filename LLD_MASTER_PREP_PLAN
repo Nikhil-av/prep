@@ -1,0 +1,592 @@
+# LLD INTERVIEW PREPARATION - MASTER PLAN
+## Amazon SDE2 / Senior Engineer Interview Prep
+
+---
+
+## 🎯 LLD Core Design Patterns & Problems
+
+### Pattern 1: STATE PATTERN
+**When to Use:** Object behavior changes based on its internal state
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| ATM Machine | ⭐⭐ | ✅ Done |
+| Vending Machine | ⭐⭐ | ✅ Done (Coffee) |
+| Elevator System | ⭐⭐⭐ | ⬜ TODO |
+| Traffic Signal | ⭐⭐ | ⬜ TODO |
+| Order Status (E-commerce) | ⭐⭐ | ⬜ TODO |
+
+**Key Concept:**
+```
+IdleState → ProcessingState → CompletedState
+Each state has defined actions and transitions
+```
+
+---
+
+### Pattern 2: STRATEGY PATTERN
+**When to Use:** Multiple interchangeable algorithms/behaviors
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Car Rental (Pricing) | ⭐⭐ | ✅ Done |
+| Payment Gateway | ⭐⭐⭐ | ⬜ TODO |
+| Ride Sharing (Pricing) | ⭐⭐⭐ | ⬜ TODO |
+| Sorting System | ⭐ | ⬜ TODO |
+| Notification System | ⭐⭐ | ⬜ TODO |
+
+**Key Concept:**
+```python
+class PaymentStrategy(ABC):
+    def pay(amount): pass
+
+class CreditCardPayment(PaymentStrategy): ...
+class UPIPayment(PaymentStrategy): ...
+```
+
+---
+
+### Pattern 3: DECORATOR PATTERN
+**When to Use:** Add behavior dynamically without changing class
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Coffee Vending (Toppings) | ⭐⭐ | ✅ Done |
+| Pizza Ordering | ⭐⭐ | ⬜ TODO |
+| Text Editor (Formatting) | ⭐⭐ | ⬜ TODO |
+| Notification Decorator | ⭐⭐ | ⬜ TODO |
+
+**Key Concept:**
+```python
+coffee = Espresso()
+coffee = MilkDecorator(coffee)
+coffee = SugarDecorator(coffee)
+```
+
+---
+
+### Pattern 4: SINGLETON PATTERN
+**When to Use:** Only one instance should exist
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Database Connection | ⭐ | ⬜ TODO |
+| Logger | ⭐ | ⬜ TODO |
+| Configuration Manager | ⭐ | ⬜ TODO |
+| Cache Manager | ⭐⭐ | ⬜ TODO |
+
+**Key Concept:** Used in almost every LLD as the main system class.
+
+---
+
+### Pattern 5: FACTORY PATTERN
+**When to Use:** Create objects without specifying exact class
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Parking Lot (Vehicle Types) | ⭐⭐ | ⬜ TODO |
+| Document Creator (PDF/Word) | ⭐⭐ | ⬜ TODO |
+| Notification Factory | ⭐⭐ | ⬜ TODO |
+| Shape Factory | ⭐ | ⬜ TODO |
+
+**Key Concept:**
+```python
+class VehicleFactory:
+    def create(type):
+        if type == "car": return Car()
+        if type == "bike": return Bike()
+```
+
+---
+
+### Pattern 6: OBSERVER PATTERN
+**When to Use:** Notify multiple objects about state changes
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Pub-Sub System | ⭐⭐⭐ | ⬜ TODO |
+| Stock Price Alerts | ⭐⭐ | ⬜ TODO |
+| Event Management | ⭐⭐ | ⬜ TODO |
+| Notification System | ⭐⭐ | ⬜ TODO |
+
+**Key Concept:**
+```python
+publisher.subscribe(observer1)
+publisher.notify_all("price_changed")
+```
+
+---
+
+### Pattern 7: CHAIN OF RESPONSIBILITY
+**When to Use:** Pass request through chain of handlers
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| ATM (Cash Dispensing) | ⭐⭐ | ✅ Done |
+| Logging Framework | ⭐⭐ | ⬜ TODO |
+| Request Validation | ⭐⭐ | ⬜ TODO |
+| Expense Approval | ⭐⭐ | ⬜ TODO |
+
+**Key Concept:**
+```
+Handler1 → Handler2 → Handler3
+If can't handle, pass to next
+```
+
+---
+
+### Pattern 8: COMPOSITE PATTERN
+**When to Use:** Tree-like hierarchical structures
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Learning Platform (Course→Module→Lesson) | ⭐⭐ | ✅ Done |
+| File System | ⭐⭐ | ⬜ TODO |
+| Organization Hierarchy | ⭐⭐ | ⬜ TODO |
+| Menu System | ⭐⭐ | ⬜ TODO |
+
+**Key Concept:**
+```
+Folder
+├── File
+├── File
+└── Folder
+    └── File
+```
+
+---
+
+### Pattern 9: COMMAND PATTERN
+**When to Use:** Encapsulate request as an object (undo/redo)
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Text Editor (Undo/Redo) | ⭐⭐⭐ | ⬜ TODO |
+| Remote Control | ⭐⭐ | ⬜ TODO |
+| Task Scheduler | ⭐⭐ | ⬜ TODO |
+| Transaction System | ⭐⭐⭐ | ⬜ TODO |
+
+**Key Concept:**
+```python
+class Command:
+    def execute(): pass
+    def undo(): pass
+```
+
+---
+
+### Pattern 10: TEMPLATE METHOD
+**When to Use:** Define skeleton, let subclasses fill in
+
+| Problem | Difficulty | Status |
+|---------|------------|--------|
+| Game Framework | ⭐⭐ | ⬜ TODO |
+| Report Generator | ⭐⭐ | ⬜ TODO |
+| Data Pipeline | ⭐⭐ | ⬜ TODO |
+
+---
+
+## � TIER 1: MUST-DO PROBLEMS + SIMILAR ALTERNATIVES
+
+For each core problem, I've listed 2-3 similar problems that test the SAME concepts.
+**Practice the main problem. Use similar ones for testing or extra practice.**
+
+---
+
+### 1. ATM Machine ✅ DONE
+**Patterns:** State, Chain of Responsibility
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Vending Machine** | State transitions (Idle→Selecting→Dispensing) | ⭐⭐ |
+| **Toll Gate System** | States + Money handling | ⭐⭐ |
+| **Ticket Counter** | Queue + States + Cash | ⭐⭐ |
+
+---
+
+### 2. Coffee Vending Machine ✅ DONE
+**Patterns:** State, Decorator
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Pizza Ordering System** | Base item + toppings (Decorator) | ⭐⭐ |
+| **Subway Sandwich Builder** | Base + customizations (Decorator) | ⭐⭐ |
+| **Ice Cream Shop** | Flavor + toppings + cones | ⭐⭐ |
+
+---
+
+### 3. Car Rental System ✅ DONE
+**Patterns:** Strategy (pricing), Singleton
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Bike Rental System** | Same rental logic, different vehicles | ⭐⭐ |
+| **Equipment Rental** | Rental + pricing + inventory | ⭐⭐ |
+| **Book Lending (Library)** | Borrow + return + availability | ⭐⭐ |
+
+---
+
+### 4. Concert Booking System ✅ DONE
+**Patterns:** Strategy, Locking, Singleton
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Movie Ticket Booking** | Seat selection + booking + locking | ⭐⭐⭐ |
+| **Flight Booking** | Seat + booking + pricing classes | ⭐⭐⭐ |
+| **Sports Event Booking** | Venue + seats + categories | ⭐⭐⭐ |
+| **Bus Ticket Booking** | Simpler version of flight | ⭐⭐ |
+
+---
+
+### 5. Learning Platform (Coursera) ✅ DONE
+**Patterns:** Composite, Singleton
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **File System** | Folder→Subfolder→File hierarchy | ⭐⭐ |
+| **Organization Chart** | Company→Department→Employee | ⭐⭐ |
+| **Menu System** | Menu→Submenu→Item hierarchy | ⭐⭐ |
+
+---
+
+### 6. Parking Lot ⬜ TODO
+**Patterns:** Factory, Strategy
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Airport Parking** | Multiple terminals + types | ⭐⭐⭐ |
+| **Warehouse Slot Management** | Slots + sizes + allocation | ⭐⭐ |
+| **Bike Stand System** | Simpler version of parking | ⭐⭐ |
+
+---
+
+### 7. LRU Cache ⬜ TODO
+**Patterns:** HashMap + Doubly Linked List
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **LFU Cache** | Different eviction, same structure | ⭐⭐⭐⭐ |
+| **Browser History** | Navigation with fixed size | ⭐⭐ |
+| **Recent Files List** | MRU with size limit | ⭐⭐ |
+
+---
+
+### 8. Splitwise ⬜ TODO
+**Patterns:** Graph, Settlement Algorithm
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Group Expense Tracker** | Same as Splitwise | ⭐⭐⭐ |
+| **Bill Splitter** | Simpler, no settlements | ⭐⭐ |
+| **Trip Expense Manager** | Group + expenses + settlements | ⭐⭐⭐ |
+
+---
+
+### 9. Elevator System ⬜ TODO
+**Patterns:** Scheduling Strategy, State
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Multi-Elevator Building** | Multiple elevators, scheduling | ⭐⭐⭐⭐ |
+| **Escalator System** | Simpler scheduling | ⭐⭐ |
+| **Conveyor Belt System** | Movement + stops | ⭐⭐ |
+
+---
+
+### 10. Rate Limiter ⬜ TODO
+**Patterns:** Token Bucket, Sliding Window
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **API Throttler** | Same concept, different context | ⭐⭐⭐ |
+| **Request Quota System** | Daily/hourly limits | ⭐⭐⭐ |
+| **Traffic Controller** | Rate control for network | ⭐⭐⭐ |
+
+---
+
+### 11. Chess ⬜ TODO
+**Patterns:** Strategy (movement), Factory (pieces)
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Checkers** | Simpler piece movement | ⭐⭐ |
+| **Ludo** | Board game with rules | ⭐⭐ |
+| **Carrom** | Turn-based game logic | ⭐⭐ |
+
+---
+
+### 12. Pub-Sub System ⬜ TODO
+**Patterns:** Observer
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Event Bus** | Publish + Subscribe | ⭐⭐⭐ |
+| **Notification Hub** | Multiple channels, subscribers | ⭐⭐⭐ |
+| **Stock Ticker** | Real-time updates to subscribers | ⭐⭐⭐ |
+
+---
+
+### 13. Logging Framework ⬜ TODO
+**Patterns:** Chain of Responsibility, Singleton
+
+| Similar Problem | What's Similar | Difficulty |
+|-----------------|----------------|------------|
+| **Request Middleware** | Chain of handlers | ⭐⭐ |
+| **Validation Pipeline** | Validators in chain | ⭐⭐ |
+| **Expense Approval System** | Manager chain approval | ⭐⭐ |
+
+---
+
+## 📊 Quick Reference: Main Problem → Similar Problems
+
+| Main Problem (Practice) | Similar (Test/Extra) | Core Pattern |
+|-------------------------|----------------------|--------------|
+| ATM | Vending, Toll Gate | State |
+| Coffee Vending | Pizza, Subway | Decorator |
+| Car Rental | Bike Rental, Library | Strategy |
+| Concert Booking | Movie, Flight, Bus | Booking + Lock |
+| Coursera | File System, Org Chart | Composite |
+| Parking Lot | Airport Parking, Warehouse | Factory |
+| LRU Cache | LFU, Browser History | Data Structure |
+| Splitwise | Trip Expense, Bill Splitter | Graph |
+| Elevator | Multi-elevator | Scheduling |
+| Rate Limiter | API Throttler, Quota | Algorithm |
+| Chess | Checkers, Ludo | Game Rules |
+| Pub-Sub | Event Bus, Notification Hub | Observer |
+| Logging | Middleware, Validation | Chain |
+
+---
+
+## �📊 Problems by Category
+
+### Category 1: BOOKING/RESERVATION SYSTEMS
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| Concert Ticket Booking | Strategy, Singleton | ⭐⭐⭐ | ✅ Done |
+| Movie Ticket Booking | Same as above | ⭐⭐⭐ | ⬜ (Save for Test) |
+| Airline Management | Same + more complex | ⭐⭐⭐⭐ | ⬜ (Save for Test) |
+| Hotel Booking | Same | ⭐⭐⭐ | ⬜ Skip |
+| Table Reservation | Same | ⭐⭐ | ⬜ Skip |
+
+**Practice ONE well. Skip rest or use for testing.**
+
+---
+
+### Category 2: VENDING/DISPENSING MACHINES
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| ATM | State, Chain of Responsibility | ⭐⭐ | ✅ Done |
+| Coffee Vending | State, Decorator | ⭐⭐ | ✅ Done |
+| Generic Vending | State | ⭐⭐ | ⬜ Skip (same as Coffee) |
+
+**You've mastered this category!**
+
+---
+
+### Category 3: MANAGEMENT SYSTEMS
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| Library Management | Singleton, Observer | ⭐⭐ | ⬜ TODO |
+| Parking Lot | Factory, Strategy | ⭐⭐⭐ | ⬜ TODO |
+| Task Management | State, Observer | ⭐⭐⭐ | ⬜ TODO |
+| Restaurant Management | State, Observer | ⭐⭐⭐ | ⬜ (Save for Test) |
+| Inventory Management | Observer, Strategy | ⭐⭐⭐ | ⬜ TODO |
+
+**Do Parking Lot (very common) and Library.**
+
+---
+
+### Category 4: GAME SYSTEMS
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| Tic-Tac-Toe | Strategy | ⭐ | ⬜ TODO (Quick) |
+| Chess | Strategy, Factory | ⭐⭐⭐⭐ | ⬜ TODO |
+| Snake & Ladder | State | ⭐⭐ | ⬜ (Save for Test) |
+| Card Game | Factory, Strategy | ⭐⭐⭐ | ⬜ Optional |
+
+**Do Chess (comprehensive) or Tic-Tac-Toe (simple warm-up).**
+
+---
+
+### Category 5: SOCIAL/PLATFORM SYSTEMS
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| LinkedIn | Observer, Composite | ⭐⭐⭐⭐ | ⬜ (Save for Test) |
+| StackOverflow | Observer, Strategy | ⭐⭐⭐ | ⬜ Optional |
+| Twitter/X | Observer, Strategy | ⭐⭐⭐ | ⬜ Optional |
+| Social Network | Observer | ⭐⭐⭐ | ⬜ Skip |
+
+**Do ONE if time permits.**
+
+---
+
+### Category 6: FINANCIAL/PAYMENT SYSTEMS
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| Splitwise | Graph, Strategy | ⭐⭐⭐ | ⬜ TODO |
+| Digital Wallet | State, Strategy | ⭐⭐⭐ | ⬜ Optional |
+| Stock Brokerage | Observer, Strategy | ⭐⭐⭐⭐ | ⬜ Optional |
+| Payment Gateway | State, Strategy | ⭐⭐⭐ | ⬜ Optional |
+
+**Splitwise is VERY common. Must do!**
+
+---
+
+### Category 7: CACHING SYSTEMS
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| LRU Cache | HashMap + DLL | ⭐⭐⭐ | ⬜ TODO |
+| LFU Cache | More complex | ⭐⭐⭐⭐ | ⬜ Optional |
+| Rate Limiter | Sliding Window/Token Bucket | ⭐⭐⭐ | ⬜ TODO |
+
+**LRU Cache and Rate Limiter are MUST DO!**
+
+---
+
+### Category 8: INFRASTRUCTURE SYSTEMS
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| Logging Framework | Chain, Singleton | ⭐⭐ | ⬜ TODO |
+| Pub-Sub System | Observer | ⭐⭐⭐ | ⬜ TODO |
+| URL Shortener | Strategy | ⭐⭐ | ⬜ TODO |
+| File System | Composite | ⭐⭐⭐ | ⬜ Optional |
+
+**Pub-Sub and Logging are common!**
+
+---
+
+### Category 9: SCHEDULING/ASSIGNMENT
+| Problem | Key Patterns | Difficulty | Status |
+|---------|--------------|------------|--------|
+| Elevator System | Scheduling Strategy | ⭐⭐⭐ | ⬜ TODO |
+| Meeting Scheduler | Strategy | ⭐⭐⭐ | ⬜ TODO |
+| Ride Sharing (Uber) | Strategy, Observer | ⭐⭐⭐⭐ | ⬜ (Save for Test) |
+| Food Delivery | Strategy, State | ⭐⭐⭐⭐ | ⬜ (Save for Test) |
+
+**Elevator is classic. Must do!**
+
+---
+
+## 📅 4-WEEK PREPARATION PLAN
+
+### Week 1: Core Patterns (Days 1-7)
+| Day | Problem | Pattern Focus | Time |
+|-----|---------|---------------|------|
+| 1 | ✅ ATM | State | Done |
+| 2 | ✅ Coffee Vending | State + Decorator | Done |
+| 3 | ✅ Car Rental | Strategy | Done |
+| 4 | ✅ Concert Booking | Booking + Locking | Done |
+| 5 | ✅ Learning Platform | Composite | Done |
+| 6 | Parking Lot | Factory + Strategy | 2 hrs |
+| 7 | LRU Cache | Data Structures | 2 hrs |
+
+### Week 2: Intermediate (Days 8-14)
+| Day | Problem | Pattern Focus | Time |
+|-----|---------|---------------|------|
+| 8 | Splitwise | Graph + Settlements | 2 hrs |
+| 9 | Elevator System | Scheduling | 2 hrs |
+| 10 | Chess | Complex Rules | 3 hrs |
+| 11 | Logging Framework | Chain of Responsibility | 1.5 hrs |
+| 12 | Pub-Sub System | Observer | 2 hrs |
+| 13 | Rate Limiter | Algorithms | 2 hrs |
+| 14 | Library Management | Classic CRUD | 1.5 hrs |
+
+### Week 3: Advanced & Speed (Days 15-21)
+| Day | Problem | Focus | Time |
+|-----|---------|-------|------|
+| 15 | Task Management | Workflow | 1.5 hrs |
+| 16 | URL Shortener | Simple but common | 1 hr |
+| 17 | Notification System | Strategy + Factory | 1.5 hrs |
+| 18 | Meeting Scheduler | Time conflicts | 2 hrs |
+| 19 | Tic-Tac-Toe | Quick game | 1 hr |
+| 20 | Digital Wallet | State + Transactions | 2 hrs |
+| 21 | Review Day | Revise patterns | - |
+
+### Week 4: Mock Tests (Days 22-28)
+| Day | Problem | Time Limit | Help? |
+|-----|---------|------------|-------|
+| 22 | Movie Ticket Booking | 45 min | ❌ No |
+| 23 | Snake & Ladder | 45 min | ❌ No |
+| 24 | Restaurant Management | 45 min | ❌ No |
+| 25 | Food Delivery | 60 min | ❌ No |
+| 26 | LinkedIn | 60 min | ❌ No |
+| 27 | Stock Brokerage | 60 min | ❌ No |
+| 28 | Random Pick | 45 min | ❌ No |
+
+---
+
+## ✅ Progress Tracker
+
+### Completed
+| # | Problem | Date | Patterns Used |
+|---|---------|------|---------------|
+| 1 | ATM Machine | Jan 30 | State, Chain of Responsibility |
+| 2 | Car Rental System | Jan 30 | Singleton, Strategy |
+| 3 | Coffee Vending Machine | Jan 30 | State, Decorator, Singleton |
+| 4 | Concert Booking System | Jan 30 | Strategy, Singleton, Locking |
+| 5 | Learning Platform (Coursera) | Jan 31 | Composite, Singleton |
+
+### In Progress
+| # | Problem | Started | Status |
+|---|---------|---------|--------|
+| 6 | - | - | - |
+
+### Todo (Priority Order)
+| Priority | Problem | Why Important |
+|----------|---------|---------------|
+| 🔥 HIGH | Parking Lot | Very common, Factory |
+| 🔥 HIGH | LRU Cache | Data structure mastery |
+| 🔥 HIGH | Splitwise | Graph, very common |
+| 🔥 HIGH | Elevator | Scheduling strategy |
+| 🔥 HIGH | Rate Limiter | Common in system design too |
+| ⭐ MEDIUM | Chess | Complex rules |
+| ⭐ MEDIUM | Pub-Sub | Observer pattern |
+| ⭐ MEDIUM | Logging Framework | Chain pattern |
+| ⚡ QUICK | Tic-Tac-Toe | 30 min warm-up |
+| ⚡ QUICK | URL Shortener | 45 min |
+
+---
+
+## 🎯 Key Patterns to Patterns-to-Problem Mapping
+
+| If You See... | Think Pattern | Example Problems |
+|---------------|---------------|------------------|
+| States/Modes changing | State | ATM, Vending, Elevator |
+| Multiple algorithms | Strategy | Payment, Pricing, Sorting |
+| Add features dynamically | Decorator | Pizza, Coffee, Text Formatting |
+| Only one instance | Singleton | Logger, DB Connection, Cache |
+| Create different types | Factory | Vehicles, Documents, Notifications |
+| Notify many objects | Observer | Pub-Sub, Stock Alerts, Events |
+| Chain of handlers | Chain of Resp. | ATM cash, Logging, Validation |
+| Tree/hierarchy | Composite | File System, Menu, Course Structure |
+| Undo/Redo | Command | Text Editor, Transactions |
+
+---
+
+## ⚠️ Common Mistakes to Avoid
+
+| Mistake | Better Approach |
+|---------|-----------------|
+| Starting to code immediately | Spend 10 min on clarifications |
+| Overcomplicating | Start simple, add complexity |
+| Ignoring edge cases | Ask about failures early |
+| No demo/testing | Always show it works |
+| Forgetting patterns | State, Strategy, Factory cover 70% |
+
+---
+
+## 📚 Quick Reference: The 7-Word Framework
+
+For ANY LLD problem:
+1. **WHO** — Actors?
+2. **WHAT** — Core entities?
+3. **HOW** — Main flow?
+4. **LINKS** — Relationships?
+5. **LIMITS** — Constraints?
+6. **FAILS** — What can go wrong?
+7. **SCALE** — Extensions?
+
+---
+
+*Last Updated: January 31, 2026*
+*Good luck with your interviews!* 🚀

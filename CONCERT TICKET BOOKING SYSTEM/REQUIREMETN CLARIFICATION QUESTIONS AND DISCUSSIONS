@@ -1,0 +1,408 @@
+# CONCERT TICKET BOOKING SYSTEM - Requirement Clarification & Discussion
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🎯 Problem Statement
+Design a **Concert Ticket Booking System** (like BookMyShow, Ticketmaster) that allows users to browse concerts, select seats, and book tickets with proper handling of seat availability and concurrent booking attempts.
+
+---
+
+## 🧠 Universal LLD Question Framework
+
+### The 7-Word Checklist (Memorize This!)
+
+| # | Word | Question |
+|---|------|----------|
+| 1 | **WHO** | Who are the actors? |
+| 2 | **WHAT** | What are the core objects/entities? |
+| 3 | **HOW** | How does the main flow work? |
+| 4 | **LINKS** | How do entities relate? |
+| 5 | **LIMITS** | What constraints exist? |
+| 6 | **FAILS** | What can go wrong? |
+| 7 | **SCALE** | Single or multiple? Extensions? |
+
+---
+
+## 🗣️ Clarifying Questions & Answers
+
+### 1. WHO — Actors
+
+**Q: Who are the different users of this system?**
+
+**A:**
+| Actor | Capabilities |
+|-------|-------------|
+| **Customer** | Browse concerts, select seats, book tickets, cancel bookings |
+| **Admin** | Create/edit concerts, add venues, view reports |
+
+For this interview, focus on **Customer** operations. Admin is simple CRUD.
+
+---
+
+### 2. WHAT — Core Entities
+
+**Q: What are the main entities and their types?**
+
+**A:**
+
+**Venue:**
+- Physical location where concerts happen
+- Has name, address, sections
+- One venue can host many concerts
+
+**Concert:**
+- An event at a venue on a specific date
+- Has artist name, date/time, venue reference
+- Has many seats (via venue layout)
+
+**Seat:**
+- Individual bookable unit
+- Has row, seat number, section
+- Three categories:
+
+| Category | Price | Description |
+|----------|-------|-------------|
+| **VIP** | ₹5000 | Front rows, close to stage |
+| **PREMIUM** | ₹2000 | Middle sections |
+| **REGULAR** | ₹500 | Back/side sections |
+
+**Booking:**
+- Links user to seats for a concert
+- Can include 1-10 seats
+- Has status (PENDING, CONFIRMED, CANCELLED)
+
+---
+
+### 3. HOW — Core Flow
+
+**Q: Walk me through the main booking flow.**
+
+**A:**
+
+```
+┌─────────────────┐
+│  User browses   │
+│    concerts     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Selects concert │
+│  & sees seats   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Selects seats   │◄─── Seats get LOCKED (10 min timer)
+│   (1-10 max)    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│    Payment      │
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌───────┐ ┌────────┐
+│SUCCESS│ │ FAILED │───► Seats UNLOCKED
+└───┬───┘ └────────┘
+    │
+    ▼
+┌─────────────────┐
+│ Booking CONFIRMED│───► Seats marked BOOKED
+│  Ticket issued   │
+└─────────────────┘
+```
+
+---
+
+### 4. LINKS — Relationships
+
+**Q: How do entities relate to each other?**
+
+**A:**
+
+```
+┌─────────┐       ┌─────────┐
+│  User   │───────│ Booking │
+└─────────┘  1:N  └─────────┘
+                       │
+                       │ N:1
+                       ▼
+                  ┌─────────┐
+                  │ Concert │
+                  └─────────┘
+                       │
+                       │ N:1
+                       ▼
+                  ┌─────────┐
+                  │  Venue  │
+                  └─────────┘
+                       │
+                       │ 1:N
+                       ▼
+                  ┌─────────┐
+                  │  Seat   │
+                  └─────────┘
+```
+
+| Relationship | Type | Description |
+|--------------|------|-------------|
+| User → Booking | 1:N | One user, many bookings |
+| Booking → Concert | N:1 | Many bookings for one concert |
+| Concert → Venue | N:1 | Many concerts at one venue |
+| Venue → Seat | 1:N | One venue, many seats |
+| Booking → Seat | 1:N | One booking, multiple seats |
+
+---
+
+### 5. LIMITS — Constraints
+
+**Q: What constraints should the system enforce?**
+
+**A:**
+
+| Constraint | Value | Reason |
+|------------|-------|--------|
+| Max seats per booking | 10 | Prevent bulk buying/scalping |
+| Seat lock duration | 10 minutes | Give time for payment, but not too long |
+| Advance booking | Up to 30 days before | Standard policy |
+| Same-day booking | Not allowed | Logistics |
+
+---
+
+### 6. FAILS — What Can Go Wrong?
+
+**Q: What are the failure scenarios?**
+
+**A:**
+
+| Scenario | Handling |
+|----------|----------|
+| **Two users select same seat** | First to lock wins. Second sees "Seat unavailable" |
+| **Lock expires (no payment)** | Seats automatically released back to AVAILABLE |
+| **Payment fails** | Seats released, user can retry |
+| **User cancels after booking** | Refund policy applies, seats released |
+
+### Cancellation Policy:
+
+| When | Refund |
+|------|--------|
+| More than 24 hours before concert | Full refund |
+| Within 24 hours | No refund |
+| After concert started | No refund |
+
+---
+
+### 7. SCALE — Extensions
+
+**Q: Single system or distributed?**
+
+**A:**
+- For interview: **Single system** (simpler)
+- If asked about scale: "I'd add a SeatLockManager service, use Redis for locks, and a message queue for booking events"
+
+---
+
+## ✅ Final Scope Summary
+
+| Aspect | Decision |
+|--------|----------|
+| **Seat Categories** | VIP (₹5000), Premium (₹2000), Regular (₹500) |
+| **Seating Style** | Numbered seats (Row + Number) |
+| **Tickets per booking** | 1-10 seats |
+| **Seat Lock Duration** | 10 minutes |
+| **Cancellation** | >24h = full refund, <24h = no refund |
+| **Concurrency** | Seat lock prevents double booking |
+| **Venue-Concert** | 1 venue : many concerts |
+| **Payment** | Simple (mark as paid, no actual gateway) |
+| **User** | Account required for booking |
+
+---
+
+## 🎬 Core Use Cases
+
+### Use Case 1: Book Tickets (Happy Path)
+1. User logs in
+2. Browses available concerts
+3. Selects a concert
+4. Views seat map with availability
+5. Selects 1-10 available seats
+6. System **locks** the seats (10 min timer starts)
+7. User proceeds to payment
+8. Payment successful
+9. Booking **confirmed**, seats marked **BOOKED**
+10. Ticket/confirmation issued
+
+### Use Case 2: Seat Lock Expiry
+1. User selects seats
+2. Seats locked for 10 minutes
+3. User doesn't complete payment
+4. Lock expires
+5. Seats automatically become **AVAILABLE**
+
+### Use Case 3: Concurrent Booking Conflict
+1. User A and User B view same concert
+2. Both see Seat A1 as available
+3. User A clicks "Select" → Seat A1 locked for User A
+4. User B clicks "Select" → System rejects, "Seat no longer available"
+
+### Use Case 4: Cancel Booking
+1. User has a confirmed booking
+2. User requests cancellation
+3. If >24h before concert: Full refund processed
+4. If <24h: "No refund" message shown
+5. Seats become **AVAILABLE** again
+
+### Use Case 5: Admin Creates Concert
+1. Admin selects venue
+2. Sets concert details (artist, date, time)
+3. Sets prices for each seat category
+4. Concert becomes visible to users
+
+---
+
+## 🚫 Out of Scope
+
+- Search/filter by artist, genre
+- Notifications (email, SMS)
+- Promo codes/discounts
+- Waiting list
+- Seat recommendations
+- Mobile app specific features
+- Payment gateway integration
+- Multiple currencies
+
+---
+
+## 💡 Design Patterns to Consider
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **Observer** | Seat status changes | Notify UI when seat becomes available/booked |
+| **Strategy** | Refund calculation | Different refund policies |
+| **Factory** | Seat creation | Create VIP/Premium/Regular seats |
+| **State** | Booking status | PENDING → CONFIRMED → CANCELLED |
+| **Singleton** | BookingService | Central booking coordinator |
+
+---
+
+## 📦 Entities to Implement
+
+### Enums
+- `SeatCategory`: VIP, PREMIUM, REGULAR
+- `SeatStatus`: AVAILABLE, LOCKED, BOOKED
+- `BookingStatus`: PENDING, CONFIRMED, CANCELLED
+
+### Classes
+- `User`: id, name, email
+- `Venue`: id, name, address, seats
+- `Seat`: id, row, number, category, status, lockedUntil, lockedBy
+- `Concert`: id, name, artist, venue, dateTime, seatPrices
+- `Booking`: id, user, concert, seats, status, totalAmount, bookedAt
+- `ConcertBookingSystem` (Singleton): manages all operations
+
+### Services
+- `BookingService`: createBooking, cancelBooking
+- `SeatLockManager`: lockSeats, unlockSeats, checkExpiry
+
+---
+
+## 🔗 Entity Details
+
+### Seat
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| seat_id | UUID | Unique identifier |
+| row | String | Row label (A, B, C...) |
+| number | int | Seat number in row |
+| category | SeatCategory | VIP/PREMIUM/REGULAR |
+| status | SeatStatus | AVAILABLE/LOCKED/BOOKED |
+| locked_until | DateTime | When lock expires |
+| locked_by | User | Who locked it |
+
+### Concert
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| concert_id | UUID | Unique identifier |
+| name | String | Concert name |
+| artist | String | Performing artist |
+| venue | Venue | Where it happens |
+| date_time | DateTime | When it happens |
+| prices | Dict[SeatCategory, int] | Price per category |
+
+### Booking
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| booking_id | UUID | Unique identifier |
+| user | User | Who booked |
+| concert | Concert | Which concert |
+| seats | List[Seat] | Booked seats |
+| status | BookingStatus | PENDING/CONFIRMED/CANCELLED |
+| total_amount | int | Total cost |
+| booked_at | DateTime | When booked |
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums | No dependencies |
+| 2 | User | Simple entity |
+| 3 | Seat | Core bookable unit |
+| 4 | Venue | Contains seats |
+| 5 | Concert | References venue |
+| 6 | Booking | Links user, concert, seats |
+| 7 | SeatLockManager | Handle locking logic |
+| 8 | BookingService | Orchestrate booking flow |
+| 9 | ConcertBookingSystem | Main facade |
+| 10 | Demo | Prove it works |
+
+---
+
+## ⚠️ Key Interview Points
+
+### 1. Seat Locking Logic (Most Important!)
+```python
+def lock_seats(self, seats, user, duration_minutes=10):
+    for seat in seats:
+        if seat.status != SeatStatus.AVAILABLE:
+            raise Exception(f"Seat {seat} is not available")
+        seat.status = SeatStatus.LOCKED
+        seat.locked_by = user
+        seat.locked_until = now() + timedelta(minutes=duration_minutes)
+```
+
+### 2. Concurrency Handling
+- Use pessimistic locking at database level
+- Or optimistic locking with version check
+- For interview: Simple check-then-lock is acceptable
+
+### 3. Lock Expiry
+- Background job that runs every minute
+- Finds all seats where `locked_until < now()`
+- Sets status back to AVAILABLE
+- In interview: Can use a simple manual check method
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] Enums cover all statue
+- [ ] Seat has lock-related attributes
+- [ ] Concert-Venue relationship is clear
+- [ ] Booking can hold multiple seats
+- [ ] Lock and unlock logic exists
+- [ ] Cancel releases seats
+- [ ] Demo shows concurrent booking prevention
+
+---
+
+*Document created during LLD interview prep session*

@@ -1,0 +1,365 @@
+# COFFEE VENDING MACHINE - Requirement Clarification & Discussion
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🎯 Problem Statement
+Design a **Coffee Vending Machine** that dispenses different types of coffee, accepts payment, manages ingredients inventory, and handles the complete user flow from drink selection to dispensing.
+
+---
+
+## 📋 The "PLACE" Framework for Requirement Gathering
+
+| Letter | Category | Questions to Ask |
+|--------|----------|------------------|
+| **P** | People (Actors) | Who uses this? (Customer, Admin/Technician?) |
+| **L** | Locations / Physical | What hardware components exist? (Display, dispenser, coin slot?) |
+| **A** | Actions (Core Flows) | Select drink → Pay → Dispense. What steps? |
+| **C** | Constraints & Edge Cases | What if ingredient runs out? Payment fails? Machine jams? |
+| **E** | Extensions & Money | Payment types? Change return? Refunds? |
+
+---
+
+## 🗣️ Clarifying Questions & Answers
+
+### 1. Payment Model
+
+**Q: Is this a free vending machine (like in offices) or payment required?**
+
+**A:** 
+- **Payment is required** — this is a commercial vending machine
+- Accepts **coins**: ₹1, ₹2, ₹5, ₹10
+- Accepts **notes**: ₹10, ₹20
+- Machine must **return change** if user overpays
+- Assume **exact payment or overpayment only** (no credit/debt system)
+
+---
+
+### 2. Inventory Management
+
+**Q: What should we do if we run out of inventory?**
+
+**A:**
+- Machine tracks **ingredient levels** (coffee beans, milk, water, sugar)
+- Each drink has a **fixed recipe** (e.g., Latte needs 1 coffee + 2 milk)
+- If ANY ingredient is insufficient for a drink:
+  - That drink becomes **UNAVAILABLE**
+  - Machine **does not accept payment** for that drink
+  - Display shows "Temporarily Unavailable"
+- **Admin can refill** ingredients via a special interface
+
+---
+
+### 3. Single vs Multiple Machines
+
+**Q: Are we designing for 1 machine or a network of machines?**
+
+**A:**
+- Design for a **single machine** (use Singleton pattern)
+- **Scalability Answer:** If asked, mention you'd remove Singleton and add a `VendingMachineManager` that tracks multiple machines
+
+---
+
+### 4. Concurrent Requests
+
+**Q: Can we dispense multiple coffees at once?**
+
+**A:**
+- **One coffee at a time**
+- Machine enters 'DISPENSING' state during preparation
+- New requests must wait or are rejected until machine returns to 'IDLE'
+- This is realistic — physical machines have one dispensing mechanism
+
+---
+
+### 5. Coffee Types & Recipes
+
+**Q: What drinks do we support? Are recipes fixed or customizable?**
+
+**A:**
+- **Fixed menu** with 3 drinks for this problem:
+
+| Drink | Coffee | Milk | Water | Sugar | Price |
+|-------|--------|------|-------|-------|-------|
+| Espresso | 2 | 0 | 1 | 1 | ₹30 |
+| Latte | 1 | 2 | 1 | 1 | ₹40 |
+| Cappuccino | 1 | 1 | 1 | 2 | ₹50 |
+
+- **No customization** for now (no "extra sugar" option)
+- Can mention as extension: "I'd use Strategy Pattern for drink customization"
+
+---
+
+### 6. Cancel & Refund Flow
+
+**Q: Can a user cancel after selecting? After paying?**
+
+**A:**
+- **Before payment:** Can cancel, return to IDLE state
+- **After payment, before dispense:** No cancel — dispense must happen
+- **If dispense fails (machine jam):** Full refund automatically
+
+---
+
+### 7. Machine States
+
+**Q: What states can the machine be in?**
+
+**A:**
+The machine follows this **State Machine**:
+
+```
+                    ┌──────────────────┐
+                    │      IDLE        │ ◄── Initial state
+                    └────────┬─────────┘
+                             │ User selects drink
+                             ▼
+                    ┌──────────────────┐
+            ┌───────│   SELECTING      │ (Shows menu, validates availability)
+            │       └────────┬─────────┘
+     Cancel │                │ Drink selected
+            │                ▼
+            │       ┌──────────────────┐
+            │       │ AWAITING_PAYMENT │ (Insert coins/notes)
+            │       └────────┬─────────┘
+            │                │ Sufficient payment received
+            │                ▼
+            │       ┌──────────────────┐
+            └──────►│   DISPENSING     │ (Making coffee)
+                    └────────┬─────────┘
+                             │ Complete
+                             ▼
+                    ┌──────────────────┐
+                    │      IDLE        │ ◄── Ready for next customer
+                    └──────────────────┘
+```
+
+---
+
+### 8. Admin Operations
+
+**Q: How does an admin manage the machine?**
+
+**A:**
+- Admin can:
+  - **Refill ingredients** (add coffee, milk, water, sugar)
+  - **Collect cash** from the cash box
+  - **View inventory levels**
+- For this interview, just add methods — no separate admin UI needed
+
+---
+
+### 9. Physical Components (for LLD "signaling")
+
+**Q: What physical components should we model?**
+
+**A:**
+| Component | Purpose |
+|-----------|---------|
+| Display | Shows menu, messages, current amount |
+| Coin Slot | Accepts coins, detects denomination |
+| Note Slot | Accepts notes |
+| Cup Dispenser | Drops a cup before dispensing |
+| Coffee Dispenser | Actually makes and pours the drink |
+| Change Dispenser | Returns excess money |
+
+**Interview Tip:** You don't need classes for all of these. Mention them for completeness, but focus on the core logic.
+
+---
+
+## ✅ Final Scope Summary
+
+| Aspect | Decision |
+|--------|----------|
+| **Coffee Types** | Espresso (₹30), Latte (₹40), Cappuccino (₹50) |
+| **Ingredients** | Coffee, Milk, Water, Sugar |
+| **Payment** | Coins (₹1, ₹2, ₹5, ₹10) + Notes (₹10, ₹20) |
+| **Change** | Yes, return excess amount |
+| **Inventory** | Track levels, block unavailable drinks |
+| **Concurrency** | One coffee at a time |
+| **Cancel** | Before payment only |
+| **Refund** | Full refund if dispense fails |
+| **Admin** | Refill ingredients, collect cash |
+| **Machine** | Singleton |
+
+---
+
+## 🎬 Core Use Cases (Functional Requirements)
+
+### Use Case 1: Purchase Coffee (Happy Path)
+1. Machine is in **IDLE** state
+2. User views menu on display
+3. User **selects a drink** (e.g., Latte)
+4. Machine checks if drink is available (ingredients sufficient)
+5. Machine enters **AWAITING_PAYMENT** state
+6. User **inserts coins/notes**
+7. Machine tracks total inserted amount
+8. When amount >= price, machine enters **DISPENSING** state
+9. Machine **returns change** if overpaid
+10. Machine **dispenses drink**
+11. Machine returns to **IDLE**
+
+### Use Case 2: Insufficient Ingredients
+1. User selects a drink
+2. Machine checks recipe against inventory
+3. If insufficient: Show "Unavailable" → Return to IDLE
+4. No payment accepted
+
+### Use Case 3: Cancel Before Payment
+1. User selects drink
+2. Machine is AWAITING_PAYMENT
+3. User presses CANCEL
+4. Any inserted money is returned
+5. Machine returns to IDLE
+
+### Use Case 4: Admin Refill
+1. Admin opens machine
+2. Admin adds ingredients
+3. Inventory levels updated
+4. Previously unavailable drinks may become available
+
+---
+
+## 🚫 Out of Scope (For This Interview)
+
+- Multiple machine management
+- Drink customization (extra sugar, milk type)
+- Credit card / UPI payment
+- Loyalty points / rewards
+- Temperature settings
+- Maintenance scheduling
+- Network connectivity / remote monitoring
+
+---
+
+## 💡 Design Patterns to Consider
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **State Pattern** | Machine states | IDLE, SELECTING, AWAITING_PAYMENT, DISPENSING |
+| **Strategy Pattern** | Payment handling | Coins vs Notes (if different validation) |
+| **Singleton** | VendingMachine | One machine instance |
+| **Factory Pattern** | Coffee creation | Different coffees from recipes |
+| **Chain of Responsibility** | Change dispensing | Similar to ATM note dispenser |
+
+---
+
+## 🧠 Key Thinking Points for Interview
+
+### 1. State Pattern is Central
+Unlike ATM where states are "screens," here states control **machine behavior**:
+- In IDLE: Only "select drink" is valid
+- In AWAITING_PAYMENT: Only "insert money" or "cancel" is valid
+- In DISPENSING: Nothing is valid (machine is busy)
+
+### 2. Inventory Check BEFORE Payment
+Don't accept money for something you can't deliver. Check availability first.
+
+### 3. Recipe as a Data Structure
+A recipe is a mapping: `{Ingredient: Amount}`
+```python
+LATTE_RECIPE = {
+    Ingredient.COFFEE: 1,
+    Ingredient.MILK: 2,
+    Ingredient.WATER: 1,
+    Ingredient.SUGAR: 1
+}
+```
+
+### 4. Change Dispenser = Chain of Responsibility
+If user pays ₹50 for ₹30 drink, return ₹20:
+- Try ₹10 coins first → give 2
+- Then ₹5 → if needed
+- Then ₹2, ₹1
+
+### 5. Idempotency
+What if user presses "select" twice? What if they insert the same coin twice?
+Machine should handle duplicate signals gracefully.
+
+---
+
+## 📦 Entities to Implement
+
+### Enums
+- `MachineState`: IDLE, AWAITING_PAYMENT, DISPENSING
+- `DrinkType`: ESPRESSO, LATTE, CAPPUCCINO
+- `Ingredient`: COFFEE, MILK, WATER, SUGAR
+- `Coin`: ONE, TWO, FIVE, TEN
+- `Note`: TEN, TWENTY
+
+### Classes
+- `Drink`: type, price, recipe
+- `Inventory`: tracks ingredient levels
+- `CashBox`: stores collected money
+- `ChangeDispenser`: returns excess payment
+- `VendingMachineState`: abstract class for State Pattern
+- `VendingMachine`: Singleton, main orchestrator
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums | No dependencies |
+| 2 | Drink + Recipe | Core data model |
+| 3 | Inventory | Ingredient tracking |
+| 4 | CashBox + ChangeDispenser | Payment handling |
+| 5 | VendingMachineState (abstract) | State Pattern base |
+| 6 | Concrete States | IDLE, AWAITING_PAYMENT, DISPENSING |
+| 7 | VendingMachine (Singleton) | Main orchestrator |
+| 8 | Demo | Prove it works |
+
+---
+
+## 🔗 Class Relationships
+
+```
+┌──────────────────┐
+│  VendingMachine  │ (Singleton)
+│  ──────────────  │
+│  - currentState  │──────► VendingMachineState (abstract)
+│  - inventory     │──────► Inventory
+│  - cashBox       │──────► CashBox
+│  - selectedDrink │──────► Drink
+│  - insertedAmount│
+└──────────────────┘
+         │
+         │ has available
+         ▼
+    ┌─────────┐
+    │  Drink  │ (Espresso, Latte, etc.)
+    │ ─────── │
+    │ - type  │
+    │ - price │
+    │ - recipe│──────► {Ingredient: Amount}
+    └─────────┘
+```
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+Before writing code, verify:
+- [ ] All states are identified (IDLE, AWAITING_PAYMENT, DISPENSING)
+- [ ] State transitions are clear
+- [ ] Each state knows what actions are valid
+- [ ] Recipes are defined for all drinks
+- [ ] Inventory can check "is drink available?"
+- [ ] Payment flow handles overpayment
+- [ ] Change calculation is correct
+
+---
+
+## 🎯 Interview Success Criteria
+
+To ace this problem, demonstrate:
+1. **State Pattern** — Clear state classes with valid transitions
+2. **Inventory Management** — Check before accepting payment
+3. **Payment Handling** — Track inserted amount, return change
+4. **Edge Cases** — Cancel, insufficient ingredients, machine jam
+5. **Clean Code** — Single Responsibility, clear naming
+
+---
+
+*Document created during LLD interview prep session*

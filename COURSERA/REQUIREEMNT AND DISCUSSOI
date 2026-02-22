@@ -1,0 +1,407 @@
+# ONLINE LEARNING PLATFORM (Coursera/Udemy) - Requirement Clarification & Discussion
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🎯 Problem Statement
+Design an **Online Learning Platform** (like Udemy, Coursera, Skillshare) where instructors create courses and students enroll, watch content, take quizzes, and earn certificates.
+
+---
+
+## 🧠 The 7-Word Framework: Quick Recap
+
+| # | Word | Question |
+|---|------|----------|
+| 1 | **WHO** | Who are the actors? |
+| 2 | **WHAT** | What are the core entities? |
+| 3 | **HOW** | How does the main flow work? |
+| 4 | **LINKS** | How do entities relate? |
+| 5 | **LIMITS** | What constraints exist? |
+| 6 | **FAILS** | What can go wrong? |
+| 7 | **SCALE** | Extensions to consider? |
+
+---
+
+## 🗣️ Clarifying Questions & Answers
+
+### 1. WHO — Actors
+
+**Q: Who uses this system?**
+
+| Actor | Role | Actions |
+|-------|------|---------|
+| **Student** | Consumer | Browse courses, enroll, watch content, take quizzes, get certificate |
+| **Instructor** | Creator | Create courses, add modules/lessons/content, view analytics |
+| **Admin** | Manager | Manage platform, approve courses (out of scope for interview) |
+
+**For this interview:** Focus on Student and Instructor.
+
+---
+
+### 2. WHAT — Course Structure
+
+**Q: What is the structure of a course?**
+
+```
+Course
+├── title, description, price, instructor
+├── Module 1: "Introduction"
+│   ├── Lesson 1.1: "Welcome" (VIDEO)
+│   ├── Lesson 1.2: "Setup" (TEXT)
+│   └── Lesson 1.3: "Basics Quiz" (QUIZ)
+├── Module 2: "Core Concepts"
+│   ├── Lesson 2.1: "Variables" (VIDEO)
+│   └── ...
+└── Module 3: ...
+```
+
+**Key entities:**
+- **Course** — Top level, has price and instructor
+- **Module** — Section/chapter of course
+- **Lesson** — Individual learning unit
+- **Content** — The actual material (Video, Text, or Quiz)
+
+---
+
+### 3. Content Types
+
+**Q: What types of content do we support?**
+
+| Type | Description | Attributes |
+|------|-------------|------------|
+| **VIDEO** | Watch a video | url, duration |
+| **TEXT** | Read an article | content (string) |
+| **QUIZ** | Answer questions | questions, passing_score |
+
+**Simplification:** No live sessions, PDFs, or assignments.
+
+---
+
+### 4. Pricing & Enrollment
+
+**Q: Free or paid courses?**
+
+- Each course has a **price** attribute
+- If `price = 0` → **Free course** (enroll directly)
+- If `price > 0` → **Paid course** (must purchase)
+- Student can enroll in **multiple courses**
+- Payment is simple (mark as paid, no actual gateway)
+
+---
+
+### 5. Quizzes
+
+**Q: How do quizzes work?**
+
+| Aspect | Decision |
+|--------|----------|
+| Question format | Multiple choice (1 correct answer) |
+| Passing score | 70% (configurable per quiz) |
+| Retries | Unlimited |
+| Time limit | None |
+| Quiz placement | At end of lesson or module |
+
+**If student fails:**
+- Can retry immediately
+- Must pass all quizzes to get certificate
+
+---
+
+### 6. Progress Tracking
+
+**Q: How is progress tracked?**
+
+| Level | Tracking |
+|-------|----------|
+| **Lesson** | Completed / Not completed |
+| **Quiz** | Best score, passed/failed |
+| **Module** | % lessons completed |
+| **Course** | % overall + quiz status |
+
+**Completion formula:**
+- All lessons in all modules marked as done ✅
+- All quizzes passed (≥70%) ✅
+- → Course complete → Certificate issued 🎓
+
+---
+
+### 7. Certificate
+
+**Q: When and what is in the certificate?**
+
+| Aspect | Decision |
+|--------|----------|
+| When issued | Automatically on course completion |
+| Contains | Student name, Course name, Instructor name, Completion date |
+| Downloadable | Yes (or just display) |
+
+---
+
+## ✅ Final Scope Summary
+
+| Aspect | Decision |
+|--------|----------|
+| **Actors** | Student, Instructor |
+| **Course Structure** | Course → Module → Lesson → Content |
+| **Content Types** | Video, Text, Quiz |
+| **Pricing** | Per course (can be 0 for free) |
+| **Enrollment** | Unlimited courses per student |
+| **Progress** | Per lesson + quiz scores |
+| **Quiz** | MCQ, 70% to pass, unlimited retries |
+| **Certificate** | Issued on completion |
+| **Payment** | Simple (out of scope for complexity) |
+
+---
+
+## 🎬 Core Use Cases
+
+### Use Case 1: Instructor Creates Course
+1. Instructor logs in
+2. Creates new course (title, description, price)
+3. Adds modules to course
+4. Adds lessons to each module
+5. Adds content (video/text/quiz) to each lesson
+6. Publishes course
+
+### Use Case 2: Student Enrolls & Learns
+1. Student browses courses
+2. Selects a course
+3. If free → Enroll directly
+4. If paid → Pay → Enroll
+5. Views modules and lessons
+6. Watches videos, reads text
+7. Takes quizzes
+
+### Use Case 3: Student Completes Course
+1. Student completes all lessons
+2. Student passes all quizzes (≥70%)
+3. System marks course as complete
+4. Certificate is generated
+5. Student can download/view certificate
+
+### Use Case 4: Student Fails Quiz
+1. Student takes quiz
+2. Score < 70%
+3. System shows "Failed, try again"
+4. Student can retake immediately
+5. Best score is stored
+
+---
+
+## 🚫 Out of Scope
+
+- Search/filter courses
+- Course reviews/ratings
+- Instructor payouts
+- Refunds
+- Discussion forums
+- Live sessions
+- Course categories (can add as enum)
+- Admin operations
+- Mobile app specifics
+
+---
+
+## 💡 Design Patterns to Consider
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **Composite** | Course → Module → Lesson hierarchy | Tree structure |
+| **Strategy** | Content types (Video, Text, Quiz) | Different content behaviors |
+| **Observer** | Progress tracking | Notify when lesson complete |
+| **Factory** | Content creation | Create different content types |
+| **Template Method** | Quiz scoring | Same scoring algorithm, different quiz types |
+
+---
+
+## 📦 Entities to Implement
+
+### Enums
+```python
+class ContentType(Enum):
+    VIDEO = "VIDEO"
+    TEXT = "TEXT"
+    QUIZ = "QUIZ"
+
+class EnrollmentStatus(Enum):
+    ENROLLED = "ENROLLED"
+    COMPLETED = "COMPLETED"
+    DROPPED = "DROPPED"
+```
+
+### Classes
+
+| Class | Attributes |
+|-------|------------|
+| **User** | user_id, name, email, role (STUDENT/INSTRUCTOR) |
+| **Course** | course_id, title, description, price, instructor, modules |
+| **Module** | module_id, title, order, lessons |
+| **Lesson** | lesson_id, title, order, content |
+| **Content** | Abstract base class |
+| **VideoContent** | url, duration_minutes |
+| **TextContent** | content_text |
+| **QuizContent** | questions, passing_score |
+| **Question** | question_id, text, options, correct_option |
+| **Enrollment** | student, course, status, progress, enrolled_at |
+| **LessonProgress** | lesson, completed, completed_at |
+| **QuizAttempt** | quiz, student, answers, score, passed |
+| **Certificate** | student, course, issued_at |
+
+---
+
+## 🔗 Entity Relationships
+
+```
+┌──────────────┐         ┌──────────────┐
+│  Instructor  │─────────│    Course    │
+└──────────────┘   1:N   └──────────────┘
+                               │
+                               │ 1:N
+                               ▼
+                         ┌──────────────┐
+                         │    Module    │
+                         └──────────────┘
+                               │
+                               │ 1:N
+                               ▼
+                         ┌──────────────┐
+                         │    Lesson    │
+                         └──────────────┘
+                               │
+                               │ 1:1
+                               ▼
+                         ┌──────────────┐
+                         │   Content    │ (Video/Text/Quiz)
+                         └──────────────┘
+
+┌──────────────┐         ┌──────────────┐
+│   Student    │─────────│  Enrollment  │
+└──────────────┘   1:N   └──────────────┘
+                               │
+                               │ N:1
+                               ▼
+                         ┌──────────────┐
+                         │    Course    │
+                         └──────────────┘
+```
+
+### Summary:
+| Relationship | Type |
+|--------------|------|
+| Instructor → Course | 1:N |
+| Course → Module | 1:N |
+| Module → Lesson | 1:N |
+| Lesson → Content | 1:1 |
+| Student → Enrollment | 1:N |
+| Enrollment → Course | N:1 |
+| Student → Certificate | 1:N |
+
+---
+
+## 🧠 Key Design Decisions
+
+### 1. Content as Strategy Pattern
+Instead of one Content class with type field, use inheritance:
+```python
+class Content(ABC):
+    @abstractmethod
+    def display(self): pass
+
+class VideoContent(Content):
+    def display(self):
+        print(f"Playing video: {self.url}")
+
+class TextContent(Content):
+    def display(self):
+        print(f"Reading: {self.text}")
+
+class QuizContent(Content):
+    def display(self):
+        # Show questions
+```
+
+**Benefit:** Each content type has its own behavior.
+
+---
+
+### 2. Progress Tracking
+Track progress at **Enrollment** level:
+```python
+class Enrollment:
+    student: Student
+    course: Course
+    lesson_progress: Dict[lesson_id, bool]  # True = completed
+    quiz_scores: Dict[quiz_id, float]       # Best score
+    
+    def get_progress_percent(self) -> float:
+        completed = sum(self.lesson_progress.values())
+        total = len(self.lesson_progress)
+        return (completed / total) * 100
+    
+    def is_complete(self) -> bool:
+        all_lessons = all(self.lesson_progress.values())
+        all_quizzes = all(score >= 70 for score in self.quiz_scores.values())
+        return all_lessons and all_quizzes
+```
+
+---
+
+### 3. Quiz Attempts
+Store each attempt for analytics:
+```python
+class QuizAttempt:
+    quiz: QuizContent
+    student: Student
+    answers: Dict[question_id, selected_option]
+    score: float
+    passed: bool
+    attempted_at: datetime
+```
+
+Or simpler: Just store **best score** in Enrollment.
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums | No dependencies |
+| 2 | User (Student/Instructor) | Base actor |
+| 3 | Question | Needed for Quiz |
+| 4 | Content classes | Video, Text, Quiz |
+| 5 | Lesson | Contains Content |
+| 6 | Module | Contains Lessons |
+| 7 | Course | Contains Modules |
+| 8 | Enrollment | Links Student to Course |
+| 9 | Certificate | Issued on completion |
+| 10 | LearningPlatform | Main facade |
+| 11 | Demo | Prove it works |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] Content has abstract base class
+- [ ] Quiz has questions with correct answers
+- [ ] Progress tracked per lesson
+- [ ] Quiz scores tracked with pass/fail
+- [ ] Course completion checks all lessons + all quizzes
+- [ ] Certificate generated on completion
+- [ ] Instructor can create full course structure
+- [ ] Student can enroll and progress through course
+
+---
+
+## ⚠️ Common Interview Mistakes
+
+| Mistake | Why It's Wrong | Correct Approach |
+|---------|----------------|------------------|
+| No Content hierarchy | All content types mixed | Use Strategy or inheritance |
+| Progress on Course | Doesn't work for multiple students | Progress on Enrollment |
+| No quiz retry | Real platforms allow retries | Track best score |
+| Certificate always generated | Should only be on completion | Check completion first |
+
+---
+
+*Document created during LLD interview prep session*

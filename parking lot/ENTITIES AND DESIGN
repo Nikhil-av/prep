@@ -1,0 +1,494 @@
+# PARKING LOT SYSTEM - Entities & Design Decisions
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🧠 Design Patterns Used
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **Factory** | VehicleFactory | Create Motorcycle/Car/Truck based on type |
+| **Factory** | SpotFactory | Create spots for floors in bulk |
+| **Strategy** | PricingStrategy | Different fee calculations (Hourly, Flat) |
+| **Strategy** | AllocationStrategy | Different spot finding (FirstAvailable, NearestToEntry) |
+| **Singleton** | ParkingSystem | One parking lot instance |
+
+---
+
+## 📦 Enums
+
+### VehicleType
+```python
+class VehicleType(Enum):
+    MOTORCYCLE = "MOTORCYCLE"
+    CAR = "CAR"
+    TRUCK = "TRUCK"
+```
+
+### SpotSizeType
+```python
+class SpotSizeType(Enum):
+    SMALL = 1      # For motorcycles
+    MEDIUM = 2     # For cars
+    LARGE = 3      # For trucks
+
+    # Comparison works: SMALL < MEDIUM < LARGE
+```
+
+### SpotStatus
+```python
+class SpotStatus(Enum):
+    AVAILABLE = "AVAILABLE"
+    OCCUPIED = "OCCUPIED"
+```
+
+---
+
+## 🚗 Vehicle Hierarchy (Factory Pattern)
+
+### Why Factory?
+- Hide object creation logic
+- Single place to create vehicles
+- Easy to add new vehicle types
+
+### Vehicle (Abstract Base)
+```python
+class Vehicle(ABC):
+    def __init__(self, license_plate: str):
+        self.license_plate = license_plate
+    
+    @abstractmethod
+    def get_type(self) -> VehicleType:
+        pass
+    
+    @abstractmethod
+    def get_required_size(self) -> SpotSizeType:
+        pass
+```
+
+### Subclasses
+```python
+class Motorcycle(Vehicle):
+    def get_type(self): return VehicleType.MOTORCYCLE
+    def get_required_size(self): return SpotSizeType.SMALL
+
+class Car(Vehicle):
+    def get_type(self): return VehicleType.CAR
+    def get_required_size(self): return SpotSizeType.MEDIUM
+
+class Truck(Vehicle):
+    def get_type(self): return VehicleType.TRUCK
+    def get_required_size(self): return SpotSizeType.LARGE
+```
+
+### VehicleFactory
+```python
+class VehicleFactory:
+    @staticmethod
+    def create_vehicle(license_plate: str, vehicle_type: VehicleType) -> Vehicle:
+        if vehicle_type == VehicleType.MOTORCYCLE:
+            return Motorcycle(license_plate)
+        elif vehicle_type == VehicleType.CAR:
+            return Car(license_plate)
+        elif vehicle_type == VehicleType.TRUCK:
+            return Truck(license_plate)
+        else:
+            raise ValueError(f"Unknown vehicle type: {vehicle_type}")
+```
+
+### Usage
+```python
+# Instead of: car = Car("KA-01-1234")
+# Use factory:
+car = VehicleFactory.create_vehicle("KA-01-1234", VehicleType.CAR)
+```
+
+---
+
+## 🅿️ ParkingSpot
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| spot_id | int | Unique identifier |
+| size | SpotSizeType | SMALL/MEDIUM/LARGE |
+| floor_number | int | Which floor |
+| status | SpotStatus | AVAILABLE/OCCUPIED |
+| vehicle | Vehicle | Currently parked (or None) |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `can_fit(vehicle)` | Check if spot size >= vehicle required size |
+| `is_available()` | Check status == AVAILABLE |
+| `park(vehicle)` | Assign vehicle, set OCCUPIED |
+| `unpark()` | Remove vehicle, set AVAILABLE |
+
+### Key Logic: can_fit()
+```python
+def can_fit(self, vehicle: Vehicle) -> bool:
+    # Spot size (1,2,3) must be >= vehicle required size (1,2,3)
+    return self.size.value >= vehicle.get_required_size().value
+```
+
+### Example:
+| Spot Size | Motorcycle (1) | Car (2) | Truck (3) |
+|-----------|----------------|---------|-----------|
+| SMALL (1) | ✅ | ❌ | ❌ |
+| MEDIUM (2) | ✅ | ✅ | ❌ |
+| LARGE (3) | ✅ | ✅ | ✅ |
+
+---
+
+## 🏗️ SpotFactory
+
+### Why SpotFactory?
+- Create multiple spots for a floor at once
+- Cleaner initialization
+- Easy to configure spot distribution
+
+### Implementation
+```python
+class SpotFactory:
+    @staticmethod
+    def create_spots(floor_number: int, 
+                     small_count: int, 
+                     medium_count: int, 
+                     large_count: int) -> list:
+        spots = []
+        spot_id = 1
+        
+        # Create small spots
+        for _ in range(small_count):
+            spots.append(ParkingSpot(spot_id, SpotSizeType.SMALL, floor_number))
+            spot_id += 1
+        
+        # Create medium spots
+        for _ in range(medium_count):
+            spots.append(ParkingSpot(spot_id, SpotSizeType.MEDIUM, floor_number))
+            spot_id += 1
+        
+        # Create large spots
+        for _ in range(large_count):
+            spots.append(ParkingSpot(spot_id, SpotSizeType.LARGE, floor_number))
+            spot_id += 1
+        
+        return spots
+```
+
+### Usage
+```python
+floor1_spots = SpotFactory.create_spots(
+    floor_number=1, 
+    small_count=10, 
+    medium_count=20, 
+    large_count=5
+)
+```
+
+---
+
+## 🏢 Floor
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| floor_number | int | Floor identifier (1, 2, 3...) |
+| spots | List[ParkingSpot] | All spots on this floor |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `get_available_spots()` | List of free spots |
+| `get_available_spots_for_vehicle(vehicle)` | Free spots that fit vehicle |
+| `get_available_count()` | Count of free spots |
+
+### Implementation
+```python
+class Floor:
+    def __init__(self, floor_number: int, small: int = 10, medium: int = 20, large: int = 5):
+        self.floor_number = floor_number
+        self.spots = SpotFactory.create_spots(floor_number, small, medium, large)
+    
+    def get_available_spots(self) -> list:
+        return [spot for spot in self.spots if spot.is_available()]
+    
+    def get_available_spots_for_vehicle(self, vehicle: Vehicle) -> list:
+        return [spot for spot in self.spots 
+                if spot.is_available() and spot.can_fit(vehicle)]
+```
+
+---
+
+## 🎫 ParkingTicket
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| ticket_id | int | Unique identifier |
+| vehicle | Vehicle | Parked vehicle |
+| spot | ParkingSpot | Assigned spot |
+| entry_time | datetime | When vehicle entered |
+| exit_time | datetime | When vehicle exited (None until exit) |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `get_duration_hours()` | Calculate parking duration |
+
+### Implementation
+```python
+class ParkingTicket:
+    def __init__(self, ticket_id, vehicle, spot):
+        self.ticket_id = ticket_id
+        self.vehicle = vehicle
+        self.spot = spot
+        self.entry_time = datetime.now()
+        self.exit_time = None
+    
+    def get_duration_hours(self) -> float:
+        end = self.exit_time or datetime.now()
+        duration = end - self.entry_time
+        return duration.total_seconds() / 3600
+```
+
+---
+
+## 🎫 TicketingManager
+
+### Purpose
+Handles ticket creation, validation, and tracking.
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| tickets | Dict[ticket_id, Ticket] | Active tickets |
+| _counter | int | For generating ticket IDs |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `issue_ticket(vehicle, spot)` | Create and return new ticket |
+| `get_ticket(ticket_id)` | Get ticket by ID |
+| `close_ticket(ticket_id)` | Mark ticket as completed |
+
+---
+
+## 💰 PricingStrategy (Strategy Pattern)
+
+### Abstract Base
+```python
+class PricingStrategy(ABC):
+    @abstractmethod
+    def calculate_fee(self, vehicle: Vehicle, hours: float) -> float:
+        pass
+```
+
+### HourlyPricing
+```python
+class HourlyPricing(PricingStrategy):
+    RATES = {
+        VehicleType.MOTORCYCLE: 20,
+        VehicleType.CAR: 40,
+        VehicleType.TRUCK: 60
+    }
+    
+    def calculate_fee(self, vehicle: Vehicle, hours: float) -> float:
+        rate = self.RATES[vehicle.get_type()]
+        return rate * math.ceil(hours)  # Round up to next hour
+```
+
+### FlatPricing
+```python
+class FlatPricing(PricingStrategy):
+    FLAT_RATES = {
+        VehicleType.MOTORCYCLE: 50,   # Up to 4 hours
+        VehicleType.CAR: 100,
+        VehicleType.TRUCK: 150
+    }
+    THRESHOLD_HOURS = 4
+    
+    def calculate_fee(self, vehicle: Vehicle, hours: float) -> float:
+        flat = self.FLAT_RATES[vehicle.get_type()]
+        if hours <= self.THRESHOLD_HOURS:
+            return flat
+        else:
+            # Flat + extra hourly after threshold
+            extra_hours = hours - self.THRESHOLD_HOURS
+            hourly_rate = flat / self.THRESHOLD_HOURS
+            return flat + (hourly_rate * math.ceil(extra_hours))
+```
+
+---
+
+## 🔍 AllocationStrategy (Strategy Pattern)
+
+### Abstract Base
+```python
+class AllocationStrategy(ABC):
+    @abstractmethod
+    def find_spot(self, floors: list, vehicle: Vehicle) -> ParkingSpot:
+        pass
+```
+
+### FirstAvailableStrategy
+```python
+class FirstAvailableStrategy(AllocationStrategy):
+    def find_spot(self, floors: list, vehicle: Vehicle) -> ParkingSpot:
+        for floor in floors:
+            for spot in floor.spots:
+                if spot.is_available() and spot.can_fit(vehicle):
+                    return spot
+        return None  # No spot found
+```
+
+### NearestToEntryStrategy
+```python
+class NearestToEntryStrategy(AllocationStrategy):
+    def find_spot(self, floors: list, vehicle: Vehicle) -> ParkingSpot:
+        # Assume spots are ordered by distance from entry
+        # Return first available that fits
+        for floor in floors:
+            available = floor.get_available_spots_for_vehicle(vehicle)
+            if available:
+                return available[0]  # First = nearest
+        return None
+```
+
+---
+
+## 🏛️ ParkingSystem (Singleton)
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| floors | List[Floor] | All parking floors |
+| ticketing_manager | TicketingManager | Handles tickets |
+| pricing_strategy | PricingStrategy | Fee calculation |
+| allocation_strategy | AllocationStrategy | Spot finding |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `park_vehicle(vehicle)` | Find spot → Issue ticket |
+| `unpark_vehicle(ticket_id)` | Calculate fee → Free spot |
+| `get_available_spots_count()` | Total free spots |
+| `is_full()` | Check if no spots available |
+
+### Core Logic
+```python
+class ParkingSystem:
+    _instance = None
+    
+    def park_vehicle(self, vehicle: Vehicle) -> ParkingTicket:
+        # Find spot using strategy
+        spot = self.allocation_strategy.find_spot(self.floors, vehicle)
+        if not spot:
+            raise Exception("Parking lot is full for this vehicle type")
+        
+        # Park the vehicle
+        spot.park(vehicle)
+        
+        # Issue ticket
+        ticket = self.ticketing_manager.issue_ticket(vehicle, spot)
+        print(f"✅ Parked at Floor {spot.floor_number}, Spot {spot.spot_id}")
+        return ticket
+    
+    def unpark_vehicle(self, ticket_id: int) -> float:
+        ticket = self.ticketing_manager.get_ticket(ticket_id)
+        ticket.exit_time = datetime.now()
+        
+        # Calculate fee
+        hours = ticket.get_duration_hours()
+        fee = self.pricing_strategy.calculate_fee(ticket.vehicle, hours)
+        
+        # Free the spot
+        ticket.spot.unpark()
+        
+        print(f"💰 Fee: ₹{fee} for {hours:.2f} hours")
+        return fee
+```
+
+---
+
+## 🔗 Entity Relationships
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      ParkingSystem                           │
+│  (Singleton)                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ Allocation  │  │  Pricing    │  │  Ticketing         │  │
+│  │  Strategy   │  │  Strategy   │  │  Manager           │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└────────────────────────┬────────────────────────────────────┘
+                         │ 1:N
+                         ▼
+                   ┌──────────────┐
+                   │    Floor     │
+                   └──────┬───────┘
+                          │ 1:N
+                          ▼
+                   ┌──────────────┐       ┌──────────────┐
+                   │ ParkingSpot  │◄──────│   Ticket     │
+                   └──────┬───────┘       └──────┬───────┘
+                          │ 1:0..1               │
+                          ▼                      │
+                   ┌──────────────┐              │
+                   │   Vehicle    │◄─────────────┘
+                   └──────────────┘
+                          ▲
+                          │ created by
+                   ┌──────────────┐
+                   │VehicleFactory│
+                   └──────────────┘
+```
+
+---
+
+## 🏭 Factory Summary
+
+| Factory | Creates | When Used |
+|---------|---------|-----------|
+| **VehicleFactory** | Motorcycle, Car, Truck | When vehicle enters |
+| **SpotFactory** | ParkingSpots | When initializing floors |
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Pattern |
+|------|------|---------|
+| 1 | Enums | - |
+| 2 | Vehicle + subclasses | - |
+| 3 | VehicleFactory | Factory |
+| 4 | ParkingSpot | - |
+| 5 | SpotFactory | Factory |
+| 6 | Floor | - |
+| 7 | ParkingTicket | - |
+| 8 | TicketingManager | - |
+| 9 | PricingStrategy + implementations | Strategy |
+| 10 | AllocationStrategy + implementations | Strategy |
+| 11 | ParkingSystem | Singleton |
+| 12 | Demo | - |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] VehicleType, SpotSizeType, SpotStatus enums
+- [ ] Vehicle abstract + Motorcycle, Car, Truck
+- [ ] VehicleFactory.create_vehicle()
+- [ ] ParkingSpot with can_fit(), park(), unpark()
+- [ ] SpotFactory.create_spots()
+- [ ] Floor using SpotFactory
+- [ ] ParkingTicket with duration calculation
+- [ ] TicketingManager for ticket handling
+- [ ] PricingStrategy (Hourly + Flat)
+- [ ] AllocationStrategy (FirstAvailable)
+- [ ] ParkingSystem as Singleton
+- [ ] Demo: vehicle → park → wait → unpark → pay
+
+---
+
+*Document created during LLD interview prep session*

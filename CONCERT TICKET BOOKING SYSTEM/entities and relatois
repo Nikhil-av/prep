@@ -1,0 +1,420 @@
+# CONCERT TICKET BOOKING SYSTEM - Entities, Relations & Design Decisions
+## Amazon SDE2 LLD Interview Prep
+
+---
+
+## 🧠 Thinking Process: Identifying Entities
+
+### Step 1: Look for "Nouns" in Requirements
+Read requirements and highlight nouns:
+- "**User** books **Seats** for a **Concert** at a **Venue**"
+- "**Booking** contains selected **Seats** and payment info"
+- "**Seats** can be VIP, Premium, or Regular"
+
+### Step 2: Identify What's Missing
+After initial list, ask:
+- What am I **booking**? → Seats (you had SeatType but forgot Seat!)
+- What **states** can things be in? → SeatStatus, BookingStatus
+- Who **manages** the logic? → BookingManager, ConcertBookingSystem
+
+### Step 3: Common Mistake Alert!
+⚠️ **Don't confuse TYPE with ENTITY:**
+- `SeatType/SeatCategory` = Enum (VIP, PREMIUM, REGULAR) → Classification
+- `Seat` = Class → Actual thing being booked with its own state
+
+---
+
+## 📦 Enums
+
+### SeatCategory
+```python
+class SeatCategory(Enum):
+    VIP = "VIP"            # ₹5000 - Front rows
+    PREMIUM = "PREMIUM"    # ₹2000 - Middle sections
+    REGULAR = "REGULAR"    # ₹500  - Back sections
+```
+
+### SeatStatus (Critical for Locking!)
+```python
+class SeatStatus(Enum):
+    AVAILABLE = "AVAILABLE"  # Can be selected
+    LOCKED = "LOCKED"        # Temporarily held (10 min)
+    BOOKED = "BOOKED"        # Confirmed booking
+```
+
+### BookingStatus
+```python
+class BookingStatus(Enum):
+    PENDING = "PENDING"      # Seats locked, awaiting payment
+    CONFIRMED = "CONFIRMED"  # Payment done, booking complete
+    CANCELLED = "CANCELLED"  # User cancelled
+```
+
+---
+
+## 👤 Entity: User
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| user_id | UUID | Unique identifier |
+| name | String | Full name |
+| email | String | Email (unique) |
+| phone | String | Contact number |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `get_bookings()` | List all bookings by this user |
+
+### Key Decision
+- Simple user entity for this problem
+- No authentication complexity (assume already logged in)
+
+---
+
+## 🏟️ Entity: Venue
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| venue_id | UUID | Unique identifier |
+| name | String | Venue name (e.g., "Madison Square Garden") |
+| address | String | Location |
+| sections | Dict | Section name → List of Seats |
+| total_capacity | int | Total seats |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `get_all_seats()` | All seats in venue |
+| `get_seats_by_category(category)` | Filter by VIP/Premium/Regular |
+
+### Key Decision
+- Venue owns all seats
+- Sections group seats (e.g., "A", "B", "VIP-1")
+- Same venue layout used for all concerts at that venue
+
+---
+
+## 💺 Entity: Seat (THE CRITICAL ONE!)
+
+### Why Seat is Critical
+- **SeatCategory** tells you the TYPE (VIP/Premium/Regular)
+- **Seat** is the ACTUAL BOOKABLE UNIT with its own state
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| seat_id | UUID | Unique identifier |
+| row | String | Row label (A, B, C...) |
+| number | int | Seat number in row |
+| category | SeatCategory | VIP/PREMIUM/REGULAR |
+| status | SeatStatus | AVAILABLE/LOCKED/BOOKED |
+| locked_by | User | Who locked it (None if not locked) |
+| locked_until | DateTime | When lock expires (None if not locked) |
+| booked_by | User | Who booked it (None if not booked) |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `is_available()` | Check if status == AVAILABLE |
+| `lock(user, duration)` | Set status to LOCKED, set timer |
+| `unlock()` | Reset to AVAILABLE, clear lock info |
+| `book(user)` | Set status to BOOKED |
+| `release()` | Set back to AVAILABLE (on cancel) |
+
+### Key Decision: Seat State Machine
+```
+                    ┌──────────────┐
+                    │  AVAILABLE   │
+                    └──────┬───────┘
+                           │ lock(user)
+                           ▼
+                    ┌──────────────┐
+        ┌───────────│   LOCKED     │───────────┐
+        │ timeout   └──────┬───────┘  cancel   │
+        │                  │ pay()             │
+        ▼                  ▼                   ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│  AVAILABLE   │    │   BOOKED     │    │  AVAILABLE   │
+└──────────────┘    └──────────────┘    └──────────────┘
+                           │
+                           │ cancel()
+                           ▼
+                    ┌──────────────┐
+                    │  AVAILABLE   │
+                    └──────────────┘
+```
+
+---
+
+## 🎤 Entity: Concert
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| concert_id | UUID | Unique identifier |
+| name | String | Concert name |
+| artist | String | Performing artist/band |
+| venue | Venue | Where it happens |
+| date_time | DateTime | When it happens |
+| prices | Dict[SeatCategory, int] | Price per category |
+| concert_seats | List[ConcertSeat] | Seat status for THIS concert |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `get_available_seats()` | Seats with status AVAILABLE |
+| `get_seats_by_category(cat)` | Filter by category |
+| `get_price(category)` | Get price for a category |
+
+### Key Decision: Concert vs Venue Seats
+- **Venue has physical seats** (the actual chairs)
+- **Concert has ConcertSeats** (status for each seat FOR THIS CONCERT)
+- Same seat can be BOOKED for Concert A and AVAILABLE for Concert B
+
+### Alternative Design (Simpler for Interview):
+Instead of separate ConcertSeat, embed seat status directly:
+```python
+class Concert:
+    def __init__(self, venue):
+        # Create seat copies for this concert
+        self.seats = {seat.seat_id: ConcertSeat(seat) for seat in venue.seats}
+```
+
+---
+
+## 🎫 Entity: ConcertSeat (Concert-specific seat status)
+
+### Why This Exists
+- A seat's availability is **per concert**
+- Seat A1 might be booked for Friday's concert but available for Saturday's
+- This links a physical Seat to a Concert with its booking status
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| seat | Seat | Reference to physical seat |
+| concert | Concert | Which concert |
+| status | SeatStatus | AVAILABLE/LOCKED/BOOKED |
+| locked_by | User | Who locked it |
+| locked_until | DateTime | Lock expiry |
+| booked_by | User | Who booked it |
+| price | int | Price for this concert |
+
+### Simplified Approach (For Interview):
+Just use a dict in Concert:
+```python
+self.seat_status = {seat_id: SeatStatus.AVAILABLE for seat in venue.seats}
+self.seat_locks = {}  # seat_id -> {user, expires_at}
+```
+
+---
+
+## 📋 Entity: Booking
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| booking_id | UUID | Unique identifier |
+| user | User | Who made the booking |
+| concert | Concert | Which concert |
+| seats | List[Seat] | Booked seats (1-10) |
+| status | BookingStatus | PENDING/CONFIRMED/CANCELLED |
+| total_amount | int | Sum of seat prices |
+| created_at | DateTime | When booking was made |
+| confirmed_at | DateTime | When payment completed |
+| cancelled_at | DateTime | When cancelled (if applicable) |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `calculate_total()` | Sum of all seat prices |
+| `confirm()` | Mark as CONFIRMED, book all seats |
+| `cancel()` | Mark as CANCELLED, release all seats |
+| `is_refundable()` | Check if >24h before concert |
+
+### Key Decision: Booking Lifecycle
+```
+┌─────────────────┐
+│     PENDING     │ ← Created when seats locked
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌───────┐ ┌─────────┐
+│CONFIRM│ │ CANCEL  │
+└───────┘ └─────────┘
+    │         │
+    │         ▼
+    │    ┌─────────┐
+    │    │CANCELLED│ → Seats released
+    │    └─────────┘
+    ▼
+┌─────────────────┐
+│   CONFIRMED     │ → Seats marked BOOKED
+└─────────────────┘
+         │
+         │ cancel()
+         ▼
+    ┌─────────────────┐
+    │   CANCELLED     │ → Seats released, refund if eligible
+    └─────────────────┘
+```
+
+---
+
+## 🔧 Service: BookingManager
+
+### Purpose
+Orchestrate the booking flow, handle locking/unlocking, concurrency.
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| active_bookings | Dict[booking_id, Booking] | All bookings |
+| lock_duration | int | Minutes to hold seats (10) |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `select_seats(user, concert, seats)` | Lock seats, create PENDING booking |
+| `confirm_booking(booking_id)` | Process payment, mark CONFIRMED |
+| `cancel_booking(booking_id)` | Cancel booking, release seats |
+| `check_expired_locks()` | Release seats with expired locks |
+
+### Key Logic: Select Seats
+```python
+def select_seats(self, user, concert, seats):
+    # 1. Validate all seats are available
+    for seat in seats:
+        if concert.get_seat_status(seat) != SeatStatus.AVAILABLE:
+            raise Exception(f"Seat {seat} is not available")
+    
+    # 2. Lock all seats
+    lock_until = now() + timedelta(minutes=10)
+    for seat in seats:
+        concert.lock_seat(seat, user, lock_until)
+    
+    # 3. Create pending booking
+    booking = Booking(user, concert, seats, BookingStatus.PENDING)
+    self.active_bookings[booking.booking_id] = booking
+    
+    return booking
+```
+
+---
+
+## 🏛️ ConcertBookingSystem (Singleton Facade)
+
+### Purpose
+Main entry point that ties everything together.
+
+### Attributes
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| _instance | Class var | Singleton instance |
+| venues | Dict[id, Venue] | All venues |
+| concerts | Dict[id, Concert] | All concerts |
+| users | Dict[id, User] | All users |
+| booking_manager | BookingManager | Booking logic |
+
+### Methods
+| Method | Description |
+|--------|-------------|
+| `get_concerts()` | List all concerts |
+| `get_concert_seats(concert_id)` | Get seat availability |
+| `book_seats(user, concert, seats)` | Delegate to BookingManager |
+| `confirm_booking(booking_id)` | Delegate to BookingManager |
+| `cancel_booking(booking_id)` | Delegate to BookingManager |
+| `add_concert(concert)` | Admin: add new concert |
+| `add_venue(venue)` | Admin: add new venue |
+
+---
+
+## 🔗 Relationships Diagram
+
+```
+┌──────────┐         ┌──────────┐
+│   User   │─────────│ Booking  │
+└──────────┘   1:N   └──────────┘
+                          │ N:1
+                          ▼
+                     ┌──────────┐
+                     │ Concert  │
+                     └──────────┘
+                          │ N:1
+                          ▼
+                     ┌──────────┐         ┌──────────┐
+                     │  Venue   │─────────│   Seat   │
+                     └──────────┘   1:N   └──────────┘
+```
+
+### Summary:
+| Relationship | Type |
+|--------------|------|
+| User → Booking | 1:N |
+| Booking → Seats | 1:N (max 10) |
+| Concert → Venue | N:1 |
+| Venue → Seat | 1:N |
+| Booking → Concert | N:1 |
+
+---
+
+## 📝 Design Decisions Summary
+
+| Decision | Choice | Reasoning |
+|----------|--------|-----------|
+| Seat status | Per-concert | Same seat can be available for different concerts |
+| Locking | 10 minute hold | Industry standard, prevents abandonment issues |
+| Max seats | 10 per booking | Prevent scalping |
+| Refund | >24h only | Common policy |
+| Concurrency | Lock-first wins | Simple, effective |
+| Singleton | ConcertBookingSystem | Central management |
+
+---
+
+## 🧪 Implementation Order
+
+| Step | What | Why |
+|------|------|-----|
+| 1 | Enums | No dependencies |
+| 2 | User | Simple entity |
+| 3 | Seat | Core bookable unit |
+| 4 | Venue | Contains seats |
+| 5 | Concert | References venue, has seat status |
+| 6 | Booking | Links user, concert, seats |
+| 7 | BookingManager | Locking and booking logic |
+| 8 | ConcertBookingSystem | Singleton facade |
+| 9 | Demo | Prove it works |
+
+---
+
+## ✅ Pre-Implementation Checklist
+
+- [ ] SeatStatus enum has AVAILABLE, LOCKED, BOOKED
+- [ ] Seat has lock-related attributes (locked_by, locked_until)
+- [ ] Concert tracks seat status PER CONCERT
+- [ ] Booking can hold 1-10 seats
+- [ ] BookingManager handles lock/unlock logic
+- [ ] Lock expiry is handled
+- [ ] Cancel releases seats
+- [ ] Refund check is time-based
+
+---
+
+## ⚠️ Common Interview Mistakes
+
+| Mistake | Why It's Wrong | Correct Approach |
+|---------|----------------|------------------|
+| Forget Seat entity | Can't track individual seat status | Add Seat class |
+| Seat status on Venue | Same seat status for all concerts | Seat status per Concert |
+| No locking mechanism | Race conditions | Add LOCKED status + timer |
+| No max seat limit | Scalping possible | Limit to 10 per booking |
+| Forget lock expiry | Seats stuck forever | Background check or lazy check |
+
+---
+
+*Document created during LLD interview prep session*
