@@ -1,834 +1,1020 @@
-# 🚕 CAB BOOKING SYSTEM (Uber/Ola) — Complete LLD Guide
-## From Zero to Interview-Ready
+# 🚗 UBER / RIDE-SHARING — Complete LLD Guide
+## The Definitive 17-Section Edition — V2.0
 
 ---
 
 ## 📖 Table of Contents
-1. [Problem Statement & Context](#-problem-statement)
-2. [Clarifying Questions](#-clarifying-questions)
-3. [Requirements](#-requirements)
-4. [Entity Identification](#-entity-identification)
-5. [Complete Class Design with Code](#-complete-class-design)
-6. [Driver Matching Algorithm](#-driver-matching-algorithm)
-7. [Ride State Machine](#-ride-state-machine)
-8. [Pricing & Surge](#-pricing--surge)
-9. [Design Patterns](#-design-patterns)
-10. [Concurrency](#-concurrency)
-11. [Full Working Implementation](#-full-implementation)
-12. [Interviewer Follow-Up Questions (15+)](#-follow-up-questions)
-13. [Comparison with Similar Problems](#-comparison)
-14. [Production Scaling](#-production-scaling)
-15. [Quick Recall Script](#-quick-recall)
+1. [🎯 Problem Statement & Context](#-1-problem-statement--context)
+2. [🗣️ Requirement Gathering](#-2-requirement-gathering)
+3. [✅ Requirements (FR + NFR)](#-3-requirements)
+4. [🧠 Key Insight: Ride State Machine + Driver Matching + Dynamic Pricing](#-4-key-insight)
+5. [📐 Class Diagram & Entity Relationships](#-5-class-diagram)
+6. [🔧 API Design (Public Interface)](#-6-api-design)
+7. [🏗️ Complete Code Implementation](#-7-complete-code)
+8. [📊 Data Structure Choices & Trade-offs](#-8-data-structure-choices)
+9. [🔒 Concurrency & Thread Safety Deep Dive](#-9-concurrency-deep-dive)
+10. [🧪 SOLID Principles Mapping](#-10-solid-principles)
+11. [🎨 Design Patterns Used](#-11-design-patterns)
+12. [💾 Database Schema (Production View)](#-12-database-schema)
+13. [⚠️ Edge Cases & Error Handling](#-13-edge-cases)
+14. [🎮 Full Working Demo](#-14-full-working-demo)
+15. [🎤 Interviewer Follow-ups (15+)](#-15-interviewer-follow-ups)
+16. [⏱️ Interview Strategy (45-min Plan)](#-16-interview-strategy)
+17. [🧠 Quick Recall Cheat Sheet](#-17-quick-recall)
 
 ---
 
-## 🎯 Problem Statement
+# 🎯 1. Problem Statement & Context
 
-> Design a **Cab Booking System** like Uber/Ola. Riders request rides, the system finds nearby available drivers, drivers accept, rides go through lifecycle states, and fare is calculated based on vehicle type + distance + duration + surge.
+## What You're Designing
 
-**Real World Context:**
-Uber processes millions of ride requests per day. The core challenges: (1) efficiently matching riders with nearby drivers in real-time, (2) handling the ride lifecycle from request to completion, (3) dynamic pricing based on supply/demand, (4) preventing race conditions when multiple riders request the same driver.
+> Design an **Uber/Ola-like Ride-Sharing System** where riders request rides from their location to a destination, the system matches them with the **nearest available driver**, the driver accepts and navigates to pickup, completes the trip, and fare is calculated based on distance + time + surge pricing. The ride follows a strict state machine lifecycle: REQUESTED → MATCHED → EN_ROUTE_PICKUP → TRIP_STARTED → COMPLETED / CANCELLED.
 
-**Why this is a top interview question:**
-- Tests **location-based matching** algorithm
-- Tests **state machine** design (ride lifecycle)
-- Tests **pricing strategy** (dynamic surge)
-- Tests **concurrency** (two riders request same driver)
-- Tests understanding of **real-world system trade-offs**
+## Real-World Context
+
+| Metric | Real Uber |
+|--------|-----------|
+| Active drivers | 5M+ globally |
+| Trips/day | 25M+ |
+| Matching latency | <5 seconds |
+| Surge multiplier | 1.0× – 5.0× |
+| Ride types | UberX, Comfort, XL, Black, Pool |
+| Driver radius | 5–10 km search radius |
+
+## Why Interviewers Love This Problem
+
+| What They Test | How This Tests It |
+|---------------|-------------------|
+| **Ride state machine** ⭐ | 5 states with strict transitions |
+| **Driver matching** ⭐ | Nearest available driver — distance + availability |
+| **Fare calculation** | Distance × rate + time × rate + surge multiplier |
+| **Multi-actor system** | Rider, Driver, System — each has different operations |
+| **Location handling** | lat/lng coordinates, distance calculation |
+| **Concurrency** | Two riders request → same nearest driver |
 
 ---
 
-## 🗣️ Clarifying Questions
+# 🗣️ 2. Requirement Gathering
 
-### 🤔 THINK: What are the first 10 questions you'd ask? This problem has MANY dimensions.
+## Must-Ask Questions
+
+| # | Question | WHY You Ask | Design Impact |
+|---|----------|-------------|---------------|
+| 1 | "Matching algorithm?" | **Core feature** | Nearest available driver within radius |
+| 2 | "Ride types?" | Pricing tiers | ECONOMY, PREMIUM, XL — different base rates |
+| 3 | "Surge pricing?" | Dynamic pricing | Multiplier based on demand/supply ratio |
+| 4 | "Ride lifecycle?" | **State machine** | REQUESTED → MATCHED → EN_ROUTE → TRIP_STARTED → COMPLETED |
+| 5 | "Who can cancel?" | Cancel rules | Rider: free before pickup. Driver: penalty after accept |
+| 6 | "Driver acceptance?" | Auto vs manual | Auto-assign (our LLD) vs driver accepts/rejects |
+| 7 | "ETA calculation?" | Distance/time | Distance ÷ avg_speed. Simple for LLD |
+| 8 | "Payment?" | Strategy pattern | Cash, Card, Wallet — Strategy pattern |
+| 9 | "Rating?" | Post-trip | Rider rates driver, driver rates rider. Bidirectional |
+| 10 | "Ride sharing / pool?" | Extension | Match multiple riders going same direction |
+
+### 🎯 THE design question that shows depth
+
+> "This has the same multi-actor state machine as Food Delivery — Rider and Driver each trigger different transitions. The core pattern is: VALID_TRANSITIONS dict ensuring only legal state changes, with atomic driver assignment using a lock to prevent two riders getting the same driver."
+
+---
+
+# ✅ 3. Requirements
+
+## Functional Requirements
+
+| Priority | ID | Requirement | Complexity |
+|----------|-----|-------------|-----------|
+| **P0** | FR-1 | **Request ride** (pickup, destination, ride type) | Medium |
+| **P0** | FR-2 | **Match nearest driver** within search radius | High |
+| **P0** | FR-3 | **Ride state machine** with strict transitions | High |
+| **P0** | FR-4 | **Fare calculation** (distance + time + surge) | Medium |
+| **P0** | FR-5 | **Driver lifecycle** (available, on_trip, offline) | Medium |
+| **P1** | FR-6 | **Cancel ride** (rider and driver, with rules) | Medium |
+| **P1** | FR-7 | **Rating system** (bidirectional) | Low |
+| **P1** | FR-8 | **Ride history** for rider and driver | Low |
+| **P2** | FR-9 | **Surge pricing** based on demand | Medium |
+| **P2** | FR-10 | **Multiple ride types** (Economy, Premium) | Low |
+
+---
+
+# 🧠 4. Key Insight: Ride State Machine + Nearest Driver
+
+## 🤔 THINK: Rider requests a ride. How does the system find the right driver and manage the entire trip lifecycle?
 
 <details>
-<summary>👀 Click to reveal — Complete question list</summary>
+<summary>👀 Click to reveal — The ride lifecycle and matching algorithm</summary>
 
-| # | Question | Why? | Answer |
-|---|----------|------|--------|
-| 1 | "Shared rides?" | Pool vs individual — big design difference | Individual only (1 rider, 1 driver) |
-| 2 | "Vehicle types?" | Pricing + matching | AUTO, MINI, SEDAN, SUV |
-| 3 | "Can driver reject?" | Affects matching flow | Yes — offer to next nearest |
-| 4 | "Surge pricing?" | Dynamic pricing model | Yes — multiplier based on demand |
-| 5 | "How to represent location?" | Coordinate system | (x, y) for LLD, GPS in production |
-| 6 | "How to find nearby drivers?" | THE key algorithm | Distance-based within radius |
-| 7 | "Both rider and driver can cancel?" | Cancellation rules | Yes, with conditions |
-| 8 | "Rating system?" | Mutual rating | Yes — rider rates driver AND driver rates rider |
-| 9 | "Payment options?" | Strategy pattern | Cash, Card, UPI |
-| 10 | "ETA / route planning?" | Out of scope | Mention but don't implement |
-| 11 | "Driver goes offline during ride?" | Error handling | Stop matching, but complete current ride |
-| 12 | "Multiple ride requests simultaneously?" | Concurrency | Thread-safe driver assignment |
+### Ride State Machine (Draw This First!)
 
-</details>
-
----
-
-## ✅ Requirements
-
-### Functional Requirements
-
-| # | FR | Priority |
-|---|-----|---------|
-| 1 | Register riders and drivers (with vehicle type + location) | Must |
-| 2 | Rider requests ride with pickup, drop, vehicle type | Must |
-| 3 | **Find nearby available drivers** within radius, sorted by distance | Must |
-| 4 | Driver accepts ride | Must |
-| 5 | Ride states: REQUESTED → ASSIGNED → IN_PROGRESS → COMPLETED / CANCELLED | Must |
-| 6 | Fare = (base + per_km × distance + per_min × duration) × surge | Must |
-| 7 | Payment via Strategy (Cash, Card, UPI) | Must |
-| 8 | Rating system (mutual) | Should |
-| 9 | Ride history for riders and drivers | Should |
-| 10 | Surge pricing control | Should |
-
-### Non-Functional Requirements
-
-| # | NFR |
-|---|------|
-| 1 | Thread-safe driver assignment (two riders can't get same driver) |
-| 2 | State validation — can't skip states |
-| 3 | Driver location updates after ride completion |
-| 4 | Extensible — add new vehicle types, pricing rules |
-
----
-
-## 📦 Entity Identification
-
-### 🤔 THINK: What distinguishes a Rider from a Driver? What entities link them?
-
-<details>
-<summary>👀 Click to reveal — Complete entity map</summary>
-
-### Enums (3)
-```python
-class RideStatus(Enum):
-    REQUESTED = 1
-    DRIVER_ASSIGNED = 2
-    IN_PROGRESS = 3
-    COMPLETED = 4
-    CANCELLED = 5
-
-class DriverStatus(Enum):
-    AVAILABLE = 1
-    ON_RIDE = 2
-    OFFLINE = 3
-
-class VehicleType(Enum):
-    AUTO = 1
-    MINI = 2
-    SEDAN = 3
-    SUV = 4
 ```
-
-### All Entities
-| Entity | Responsibility |
-|--------|---------------|
-| **Location** | (x, y) coordinates + distance calculation |
-| **Rider** | Requests rides, has ride history + rating |
-| **Driver** | Has vehicle type, status, location, rating |
-| **Ride** | Links rider + driver + locations + status + fare |
-| **PaymentStrategy** | ABC — Cash, Card, UPI |
-| **CabBookingSystem** | Singleton — manages all entities |
-
-</details>
-
----
-
-## 🏗️ Complete Class Design
-
-### Location — With Distance Calculation
+REQUESTED ──match driver──→ MATCHED ──driver arrives──→ EN_ROUTE_PICKUP
+     │                        │                              │
+     │ cancel                 │ cancel (penalty)             │
+     ↓                        ↓                              │
+  CANCELLED              CANCELLED                           │
+                                                             │
+     ┌──────────────────── start trip ──────────────────────┘
+     ↓
+TRIP_STARTED ──arrive at destination──→ COMPLETED
+     │                                      │
+     │                                      ↓
+     └──────────────────────────→ Rate + Pay + History
+```
 
 ```python
-import math
-
-class Location:
-    def __init__(self, x: float, y: float):
-        self.x = x
-        self.y = y
-
-    def distance_to(self, other: 'Location') -> float:
-        """Euclidean distance — sufficient for LLD."""
-        return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
-
-    def __str__(self):
-        return f"({self.x}, {self.y})"
-```
-
-### 🤔 THINK: Why Euclidean distance instead of Haversine?
-> For LLD: Euclidean is simple and demonstrates the concept. In production, you'd use Haversine (for lat/lng on a sphere) or Google Maps API for actual road distance. **Always mention the real-world alternative.**
-
----
-
-### Rider
-
-```python
-class Rider:
-    def __init__(self, rider_id: int, name: str, location: Location):
-        self.rider_id = rider_id
-        self.name = name
-        self.location = location
-        self.ride_history: list['Ride'] = []
-        self.rating: float = 5.0
-        self.total_ratings: int = 0
-
-    def update_rating(self, new_rating: float):
-        total = self.rating * self.total_ratings + new_rating
-        self.total_ratings += 1
-        self.rating = round(total / self.total_ratings, 2)
-
-    def __str__(self):
-        return f"👤 {self.name} (⭐{self.rating})"
-```
-
-### Driver
-
-```python
-class Driver:
-    def __init__(self, driver_id: int, name: str,
-                 vehicle_type: VehicleType, location: Location):
-        self.driver_id = driver_id
-        self.name = name
-        self.vehicle_type = vehicle_type
-        self.location = location
-        self.status = DriverStatus.AVAILABLE
-        self.ride_history: list['Ride'] = []
-        self.rating: float = 5.0
-        self.total_ratings: int = 0
-
-    def update_rating(self, new_rating: float):
-        total = self.rating * self.total_ratings + new_rating
-        self.total_ratings += 1
-        self.rating = round(total / self.total_ratings, 2)
-
-    def __str__(self):
-        return f"🚗 {self.name} ({self.vehicle_type.name}, {self.status.name}, ⭐{self.rating})"
-```
-
-### 🤔 THINK: Why does Driver have a `location` that changes, but Rider's location is set at registration?
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-In our LLD, Rider specifies pickup location per ride (not stored on Rider). Driver's location is tracked and **updates to the drop location after each ride** — because the driver is physically AT the drop location after completing a ride.
-
-```python
-# After completing a ride:
-driver.location = ride.drop_location  # Driver is now HERE
-driver.status = DriverStatus.AVAILABLE
-```
-
-This is critical for **next ride matching** — without this update, drivers appear at their old location.
-
-</details>
-
----
-
-### Ride — The Central Entity
-
-```python
-class Ride:
-    _counter = 0
-
-    def __init__(self, rider: Rider, pickup: Location, drop: Location,
-                 vehicle_type: VehicleType):
-        Ride._counter += 1
-        self.ride_id = Ride._counter
-        self.rider = rider
-        self.driver: Driver | None = None
-        self.pickup = pickup
-        self.drop = drop
-        self.vehicle_type = vehicle_type
-        self.status = RideStatus.REQUESTED
-        self.start_time: datetime | None = None
-        self.end_time: datetime | None = None
-        self.fare: float = 0
-        self.distance: float = pickup.distance_to(drop)
-
-    def __str__(self):
-        driver_name = self.driver.name if self.driver else "None"
-        return (f"🚕 Ride#{self.ride_id}: {self.rider.name} → {driver_name} | "
-                f"{self.status.name} | {self.distance:.1f}km | ₹{self.fare:.0f}")
-```
-
----
-
-## ⚡ Driver Matching Algorithm
-
-### 🤔 THINK: You have 1000 drivers. A rider requests a ride. How do you find the best driver?
-
-<details>
-<summary>👀 Click to reveal — Complete matching algorithm</summary>
-
-**Step-by-step filtering pipeline:**
-
-```python
-def find_nearby_drivers(self, location: Location, vehicle_type: VehicleType,
-                        radius: float = 10.0) -> list[Driver]:
-    """
-    Pipeline:
-    1. ALL drivers
-    2. → Filter AVAILABLE only
-    3. → Filter matching vehicle_type
-    4. → Filter within radius
-    5. → Sort by distance (closest first)
-    """
-    # Step 1 + 2: Available + matching type
-    candidates = [d for d in self.drivers.values()
-                  if d.status == DriverStatus.AVAILABLE
-                  and d.vehicle_type == vehicle_type]
-
-    # Step 3: Within radius
-    nearby = [d for d in candidates
-              if d.location.distance_to(location) <= radius]
-
-    # Step 4: Sort by distance
-    nearby.sort(key=lambda d: d.location.distance_to(location))
-
-    return nearby
-```
-
-**Complexity:**
-- Brute force: **O(D)** where D = total drivers
-- In production: **O(log D)** using QuadTree or Google S2 cells
-
-**When to mention spatial indexing:**
-> "For LLD, I'll scan all drivers. But in production, I'd use a **QuadTree** or **GeoHash** for O(log n) spatial queries. Uber uses Google S2 cells to partition the map into cells and index drivers by cell."
-
-</details>
-
-### 🤔 THINK: What if the nearest driver rejects? What if NO drivers are available?
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-**Driver rejection — offer to next:**
-```python
-def request_ride(self, rider_id, pickup, drop, vehicle_type):
-    nearby = self.find_nearby_drivers(pickup, vehicle_type)
-    
-    if not nearby:
-        print("❌ No drivers available!")
-        ride.status = RideStatus.CANCELLED
-        return None
-    
-    # In our LLD: auto-assign first available
-    # In production: broadcast to top 3-5, first to accept wins
-    ride.driver = nearby[0]
-    ride.driver.status = DriverStatus.ON_RIDE
-    ride.status = RideStatus.DRIVER_ASSIGNED
-    return ride
-```
-
-**In production (broadcast model):**
-1. Send ride request to top 5 nearest drivers simultaneously
-2. First driver to tap "Accept" wins
-3. If none accept within 30 seconds → expand radius, try more drivers
-4. If still no one → tell rider "No drivers available"
-
-</details>
-
----
-
-## 📊 Ride State Machine
-
-### 🤔 THINK: Draw ALL valid transitions. Which ones need validation? Who triggers each?
-
-<details>
-<summary>👀 Click to reveal — Complete state machine</summary>
-
-```
-                 accept()              start()              complete()
-REQUESTED ───────────→ DRIVER_ASSIGNED ──────────→ IN_PROGRESS ──────────→ COMPLETED
-    │                       │                          │
-    │ cancel()              │ cancel()                 │ cancel()
-    ▼                       ▼                          ▼
-CANCELLED              CANCELLED                  CANCELLED
-```
-
-| Transition | Who Triggers | Validation | Side Effects |
-|-----------|-------------|-----------|-------------|
-| REQUESTED → ASSIGNED | Driver accepts | Ride is REQUESTED, Driver is AVAILABLE | Driver → ON_RIDE |
-| ASSIGNED → IN_PROGRESS | Driver starts | Ride is ASSIGNED | Record start_time |
-| IN_PROGRESS → COMPLETED | Driver completes | Ride is IN_PROGRESS | Calculate fare, process payment, update driver location |
-| Any → CANCELLED | Rider or driver | Ride is NOT COMPLETED/CANCELLED | Free driver if assigned |
-| COMPLETED → anything | ❌ | Terminal state | — |
-| CANCELLED → anything | ❌ | Terminal state | — |
-
-**Every method validates current state before transitioning:**
-```python
-def accept_ride(self, driver_id, ride_id):
-    ride = self.rides.get(ride_id)
-    driver = self.drivers.get(driver_id)
-    
-    # ──── VALIDATIONS ────
-    if not ride or not driver:
-        return False
-    if ride.status != RideStatus.REQUESTED:      # Must be REQUESTED
-        print(f"❌ Ride is {ride.status.name}, cannot accept")
-        return False
-    if driver.status != DriverStatus.AVAILABLE:   # Must be AVAILABLE
-        print(f"❌ Driver is {driver.status.name}")
-        return False
-    
-    # ──── TRANSITION ────
-    ride.driver = driver
-    ride.status = RideStatus.DRIVER_ASSIGNED
-    driver.status = DriverStatus.ON_RIDE
-    return True
-```
-
-</details>
-
----
-
-## 💰 Pricing & Surge
-
-### Pricing Config
-
-### 🤔 THINK: Should pricing be a Strategy pattern or a config dict?
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-**Config dict — because the FORMULA is the same, only the NUMBERS differ:**
-
-```python
-PRICING = {
-    VehicleType.AUTO:  {"base": 25,  "per_km": 8,   "per_min": 1.0},
-    VehicleType.MINI:  {"base": 40,  "per_km": 10,  "per_min": 1.5},
-    VehicleType.SEDAN: {"base": 50,  "per_km": 12,  "per_min": 2.0},
-    VehicleType.SUV:   {"base": 70,  "per_km": 15,  "per_min": 2.5},
+VALID_TRANSITIONS = {
+    RideStatus.REQUESTED:       {RideStatus.MATCHED, RideStatus.CANCELLED},
+    RideStatus.MATCHED:         {RideStatus.EN_ROUTE_PICKUP, RideStatus.CANCELLED},
+    RideStatus.EN_ROUTE_PICKUP: {RideStatus.TRIP_STARTED, RideStatus.CANCELLED},
+    RideStatus.TRIP_STARTED:    {RideStatus.COMPLETED},
+    RideStatus.COMPLETED:       set(),  # Terminal
+    RideStatus.CANCELLED:       set(),  # Terminal
 }
 ```
 
-**Formula:**
-```
-fare = (base + distance × per_km + duration_min × per_min) × surge_multiplier
-```
+### Driver Matching: Nearest Available
 
-**Use Strategy when the calculation LOGIC differs** (not just numbers).
-Use config dict when the same formula is applied with different parameters.
+```
+Rider at (12.97, 77.59) requests ECONOMY ride.
 
-</details>
+Available drivers:
+  Driver A: (12.98, 77.60) → 1.4 km ← NEAREST!
+  Driver B: (12.95, 77.55) → 4.8 km
+  Driver C: (12.99, 77.62) → 3.7 km (but PREMIUM only)
+  Driver D: on_trip (not available)
+
+Algorithm:
+1. Filter: available + correct ride type
+2. Sort by distance to pickup
+3. Assign NEAREST
+
+CRITICAL: Must be ATOMIC — two riders requesting simultaneously
+could both select Driver A!
+```
 
 ### Fare Calculation
 
 ```python
-def calculate_fare(self, ride: Ride, duration_min: float) -> float:
-    config = PRICING[ride.vehicle_type]
-    base = config["base"]
-    distance_charge = ride.distance * config["per_km"]
-    time_charge = duration_min * config["per_min"]
+def calculate_fare(distance_km, duration_min, ride_type, surge):
+    """
+    Fare = (base_fare + distance × per_km + duration × per_min) × surge
     
-    raw_fare = base + distance_charge + time_charge
-    final_fare = round(raw_fare * self.surge_multiplier, 2)
+    ECONOMY:  base=50, per_km=10, per_min=2
+    PREMIUM:  base=100, per_km=15, per_min=3
     
-    return final_fare
+    Example: 8 km, 20 min, ECONOMY, surge=1.5×
+    Fare = (50 + 8×10 + 20×2) × 1.5
+         = (50 + 80 + 40) × 1.5
+         = 170 × 1.5
+         = ₹255
+    """
 ```
 
-### Surge Pricing
+### Uber vs Food Delivery: Same Pattern, Different Actors
 
-### 🤔 THINK: When should surge be applied? How does Uber actually calculate it?
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-**For LLD — simple multiplier:**
-```python
-class CabBookingSystem:
-    surge_multiplier: float = 1.0  # Default: no surge
-    
-    def set_surge(self, multiplier: float):
-        self.surge_multiplier = multiplier
-```
-
-**In production — supply-demand ratio per geographic area:**
-```python
-def calculate_surge(self, location, radius=5.0):
-    supply = len([d for d in self.drivers.values()
-                  if d.status == DriverStatus.AVAILABLE
-                  and d.location.distance_to(location) <= radius])
-    
-    demand = len([r for r in self.rides.values()
-                  if r.status == RideStatus.REQUESTED
-                  and r.pickup.distance_to(location) <= radius])
-    
-    ratio = demand / max(supply, 1)
-    
-    if ratio > 3:   return 2.5   # Extreme demand
-    if ratio > 2:   return 2.0
-    if ratio > 1.5: return 1.5
-    if ratio > 1:   return 1.2
-    return 1.0
-```
-
-**Real Uber:**
-- City divided into hexagonal cells (H3 grid)
-- Each cell has its own surge multiplier
-- Updated every few seconds based on real-time supply/demand
-- ML models predict demand and pre-position drivers
+| Aspect | Uber | Food Delivery |
+|--------|------|---------------|
+| **Actors** | Rider, Driver | Customer, Restaurant, Driver |
+| **State machine** | 5 states (ride lifecycle) | 7 states (order lifecycle) |
+| **Matching** | Nearest driver to RIDER | Nearest driver to RESTAURANT |
+| **Pricing** | Distance + time + surge | Menu price + delivery fee |
+| **Core pattern** | VALID_TRANSITIONS + atomic assignment | Same! |
 
 </details>
 
 ---
 
-### Complete `complete_ride()` — Putting It All Together
+# 📐 5. Class Diagram & Entity Relationships
 
-```python
-def complete_ride(self, ride_id: int, payment: PaymentStrategy,
-                  duration_min: float = None) -> float:
-    ride = self.rides.get(ride_id)
-    if not ride or ride.status != RideStatus.IN_PROGRESS:
-        print("❌ Invalid ride state")
-        return 0
-
-    # Calculate duration
-    ride.end_time = datetime.now()
-    if duration_min is None:
-        duration_min = (ride.end_time - ride.start_time).total_seconds() / 60
-
-    # Calculate fare
-    fare = self.calculate_fare(ride, duration_min)
-    ride.fare = fare
-
-    # Process payment
-    payment.pay(fare)
-
-    # Update states
-    ride.status = RideStatus.COMPLETED
-
-    # ⚠️ CRITICAL: Update driver location to DROP location
-    ride.driver.location = ride.drop
-    ride.driver.status = DriverStatus.AVAILABLE
-
-    # Record in history
-    ride.rider.ride_history.append(ride)
-    ride.driver.ride_history.append(ride)
-
-    print(f"✅ Ride#{ride.ride_id} completed! Fare: ₹{fare:.0f}")
-    return fare
+```mermaid
+classDiagram
+    class RideStatus {
+        <<enum>>
+        REQUESTED
+        MATCHED
+        EN_ROUTE_PICKUP
+        TRIP_STARTED
+        COMPLETED
+        CANCELLED
+    }
+    
+    class RideType {
+        <<enum>>
+        ECONOMY
+        PREMIUM
+        XL
+    }
+    
+    class Location {
+        +float lat
+        +float lng
+        +distance_to(other): float
+    }
+    
+    class Rider {
+        +str name
+        +Location location
+        +float rating
+        +list ride_history
+    }
+    
+    class Driver {
+        +str name
+        +Location location
+        +RideType ride_type
+        +bool is_available
+        +Ride current_ride
+        +float rating
+    }
+    
+    class Ride {
+        +Rider rider
+        +Driver driver
+        +Location pickup
+        +Location destination
+        +RideStatus status
+        +RideType type
+        +float fare
+        +float surge
+        +transition_to(status)
+    }
+    
+    class UberSystem {
+        +dict riders
+        +dict drivers
+        +request_ride()
+        +match_driver()
+        +start_trip()
+        +complete_trip()
+        +cancel_ride()
+    }
+    
+    UberSystem --> Rider
+    UberSystem --> Driver
+    UberSystem --> Ride
+    Ride --> RideStatus
+    Ride --> Location
 ```
 
 ---
 
-## 💡 Design Patterns
+# 🔧 6. API Design (Public Interface)
 
-| Pattern | Where | Why | Alternative |
-|---------|-------|-----|-------------|
-| **Singleton** | CabBookingSystem | One system | — |
-| **Strategy** | PaymentStrategy | Swap payment methods | Config (less extensible) |
-| **State Machine** | RideStatus transitions | Clear lifecycle with validation | String-based status (error-prone) |
-| **Observer** (optional) | Notify rider of driver arrival | Decouple notification | Polling (less efficient) |
+```python
+class UberSystem:
+    """
+    Uber API — maps to rider app actions and driver app actions.
+    
+    Rider actions: request_ride, cancel_ride, rate_driver
+    Driver actions: go_online, go_offline, start_trip, complete_trip
+    System actions: match_driver (automatic)
+    """
+    def request_ride(self, rider_id, pickup_lat, pickup_lng,
+                     dest_lat, dest_lng, ride_type="ECONOMY") -> 'Ride': ...
+    def cancel_ride(self, ride_id, cancelled_by) -> bool: ...
+    def start_trip(self, ride_id) -> bool: ...
+    def complete_trip(self, ride_id) -> float:
+        """Returns fare amount."""
+    def rate_ride(self, ride_id, rider_rating=None, driver_rating=None): ...
+```
 
 ---
 
-## 🧵 Concurrency
+# 🏗️ 7. Complete Code Implementation
 
-### 🤔 THINK: Two riders request the same driver simultaneously. What's the race condition?
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-**Without locking:**
-```
-Rider A: find drivers → Driver X is AVAILABLE ✅
-Rider B: find drivers → Driver X is AVAILABLE ✅  ← RACE!
-Rider A: assign Driver X → status = ON_RIDE ✅
-Rider B: assign Driver X → status = ON_RIDE ✅  ← DOUBLE ASSIGNMENT! 💀
-```
-
-**With locking:**
-```python
-def request_ride(self, ...):
-    with self._lock:
-        nearby = self.find_nearby_drivers(pickup, vehicle_type)
-        if nearby:
-            driver = nearby[0]
-            driver.status = DriverStatus.ON_RIDE  # Atomic
-            ride.driver = driver
-```
-
-**Only one thread can assign a driver at a time.**
-
-**Production approach:**
-- Optimistic locking in database (version column)
-- Redis distributed lock per driver
-- Or: broadcast to driver, let DRIVER accept (no server-side race)
-
-</details>
-
----
-
-## 🎤 Interviewer Follow-Up Questions (15+)
-
-### Q1: "How does Uber actually match drivers?"
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-1. **Partition the city** using H3 hexagonal grid or S2 cells
-2. **Index drivers** by cell — each cell has a list of available drivers
-3. **On ride request:** look at the rider's cell + adjacent cells
-4. **Score drivers** by: distance, ETA (actual road time), acceptance rate, rating
-5. **Broadcast** to top 3-5, first to accept wins
-6. If no one accepts → expand search radius, try again
-
-Our LLD simplifies this to: scan all → filter → sort by distance.
-
-</details>
-
-### Q2: "How to handle driver going offline mid-ride?"
-
-<details>
-<summary>👀 Click to reveal</summary>
+## Enums & Location
 
 ```python
-def driver_offline(self, driver_id):
-    driver = self.drivers[driver_id]
-    if driver.status == DriverStatus.ON_RIDE:
-        # Don't interrupt current ride — let it complete
-        print("⚠️ Driver will go offline after current ride")
-        driver.go_offline_after_ride = True
-    else:
-        driver.status = DriverStatus.OFFLINE
+from enum import Enum
+from datetime import datetime
+import math
+import threading
+import random
+
+class RideStatus(Enum):
+    REQUESTED = "REQUESTED"
+    MATCHED = "MATCHED"
+    EN_ROUTE_PICKUP = "EN_ROUTE_PICKUP"
+    TRIP_STARTED = "TRIP_STARTED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+class RideType(Enum):
+    ECONOMY = "ECONOMY"
+    PREMIUM = "PREMIUM"
+    XL = "XL"
+
+VALID_TRANSITIONS = {
+    RideStatus.REQUESTED:       {RideStatus.MATCHED, RideStatus.CANCELLED},
+    RideStatus.MATCHED:         {RideStatus.EN_ROUTE_PICKUP, RideStatus.CANCELLED},
+    RideStatus.EN_ROUTE_PICKUP: {RideStatus.TRIP_STARTED, RideStatus.CANCELLED},
+    RideStatus.TRIP_STARTED:    {RideStatus.COMPLETED},
+    RideStatus.COMPLETED:       set(),
+    RideStatus.CANCELLED:       set(),
+}
+
+FARE_CONFIG = {
+    RideType.ECONOMY: {"base": 50, "per_km": 10, "per_min": 2},
+    RideType.PREMIUM: {"base": 100, "per_km": 15, "per_min": 3},
+    RideType.XL:      {"base": 80, "per_km": 12, "per_min": 2.5},
+}
+
+class Location:
+    """GPS coordinates with Haversine distance calculation."""
+    def __init__(self, lat: float, lng: float):
+        self.lat = lat
+        self.lng = lng
+    
+    def distance_to(self, other: 'Location') -> float:
+        """Haversine distance in km between two GPS points."""
+        R = 6371  # Earth radius in km
+        dlat = math.radians(other.lat - self.lat)
+        dlng = math.radians(other.lng - self.lng)
+        a = (math.sin(dlat/2)**2 +
+             math.cos(math.radians(self.lat)) *
+             math.cos(math.radians(other.lat)) *
+             math.sin(dlng/2)**2)
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    
+    def __str__(self):
+        return f"({self.lat:.4f}, {self.lng:.4f})"
 ```
 
-</details>
-
-### Q3: "How to implement ride cancellation with penalty?"
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-```python
-def cancel_ride(self, ride_id, cancelled_by: str):
-    ride = self.rides[ride_id]
-    
-    if ride.status in (RideStatus.COMPLETED, RideStatus.CANCELLED):
-        return "Cannot cancel"
-    
-    penalty = 0
-    if ride.status == RideStatus.IN_PROGRESS:
-        penalty = 50  # Cancellation during ride = penalty
-    elif ride.status == RideStatus.DRIVER_ASSIGNED:
-        if cancelled_by == "rider":
-            # Check if driver has been waiting > 5 min
-            wait_time = (datetime.now() - ride.assigned_time).total_seconds() / 60
-            if wait_time > 5:
-                penalty = 30  # Late cancellation fee
-    
-    # Free driver
-    if ride.driver:
-        ride.driver.status = DriverStatus.AVAILABLE
-        ride.driver = None
-    
-    ride.status = RideStatus.CANCELLED
-    return penalty
-```
-
-</details>
-
-### Q4: "How to add ride sharing (pool rides)?"
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-```python
-class Ride:
-    max_passengers: int = 1  # Regular
-    riders: list[Rider] = []
-    
-    # For pool:
-    max_passengers = 3
-    status per rider (some may have dropped off)
-
-class Driver:
-    current_passengers: int = 0
-    max_capacity: int = 4
-    
-    def is_full(self):
-        return self.current_passengers >= self.max_capacity
-    
-    # Driver status: AVAILABLE → PARTIALLY_OCCUPIED → FULL
-```
-
-**Match riders going in similar direction:**
-```python
-def direction_similarity(pickup1, drop1, pickup2, drop2):
-    angle1 = math.atan2(drop1.y - pickup1.y, drop1.x - pickup1.x)
-    angle2 = math.atan2(drop2.y - pickup2.y, drop2.x - pickup2.x)
-    return abs(angle1 - angle2) < math.pi / 4  # Within 45 degrees
-```
-
-</details>
-
-### Q5: "How to implement ETA (Estimated Time of Arrival)?"
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-```python
-AVERAGE_SPEED_KM_PER_MIN = 0.5  # 30 km/h in city
-
-def estimate_eta(self, driver, pickup):
-    distance = driver.location.distance_to(pickup)
-    eta_minutes = distance / AVERAGE_SPEED_KM_PER_MIN
-    return round(eta_minutes, 1)
-```
-
-In production: Google Maps Directions API for actual road-based ETA with traffic.
-
-</details>
-
-### Q6: "How to handle peak hours automatically?"
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-```python
-def auto_surge(self):
-    hour = datetime.now().hour
-    if hour in [8, 9, 18, 19]:      # Rush hours
-        self.surge_multiplier = 1.5
-    elif hour in [23, 0, 1, 2]:     # Late night
-        self.surge_multiplier = 1.8
-    else:
-        self.surge_multiplier = 1.0
-```
-
-Real systems: ML-based demand prediction, not hardcoded hours.
-
-</details>
-
-### Q7: "How to implement driver earnings dashboard?"
-
-<details>
-<summary>👀 Click to reveal</summary>
-
-```python
-class Driver:
-    def total_earnings(self):
-        return sum(r.fare for r in self.ride_history if r.status == RideStatus.COMPLETED)
-    
-    def rides_today(self):
-        today = datetime.now().date()
-        return [r for r in self.ride_history
-                if r.end_time and r.end_time.date() == today]
-    
-    def average_rating(self):
-        return self.rating
-    
-    def completion_rate(self):
-        completed = sum(1 for r in self.ride_history if r.status == RideStatus.COMPLETED)
-        total = len(self.ride_history)
-        return completed / total if total else 0
-```
-
-</details>
-
-### Q8: "How to implement favorite drivers?"
-
-<details>
-<summary>👀 Click to reveal</summary>
+## Rider & Driver
 
 ```python
 class Rider:
-    favorite_drivers: list[int] = []  # driver_ids
-
-def find_nearby_drivers(self, location, vehicle_type, rider_id=None):
-    nearby = [...standard matching...]
+    _counter = 0
+    def __init__(self, name: str, lat: float, lng: float):
+        Rider._counter += 1
+        self.rider_id = Rider._counter
+        self.name = name
+        self.location = Location(lat, lng)
+        self.rating = 5.0
+        self.total_ratings = 0
+        self.ride_history: list['Ride'] = []
+        self.current_ride: 'Ride' = None
     
-    if rider_id:
-        rider = self.riders[rider_id]
-        # Boost favorite drivers to top
-        nearby.sort(key=lambda d: (
-            0 if d.driver_id in rider.favorite_drivers else 1,
-            d.location.distance_to(location)
-        ))
-    return nearby
+    def update_rating(self, new_rating: float):
+        self.total_ratings += 1
+        self.rating = ((self.rating * (self.total_ratings - 1) + new_rating)
+                       / self.total_ratings)
+    
+    def __str__(self):
+        return f"🧑 {self.name} (⭐{self.rating:.1f})"
+
+
+class Driver:
+    _counter = 0
+    def __init__(self, name: str, lat: float, lng: float,
+                 ride_type: RideType = RideType.ECONOMY):
+        Driver._counter += 1
+        self.driver_id = Driver._counter
+        self.name = name
+        self.location = Location(lat, lng)
+        self.ride_type = ride_type
+        self.is_available = True
+        self.is_online = True
+        self.current_ride: 'Ride' = None
+        self.rating = 5.0
+        self.total_ratings = 0
+        self.total_trips = 0
+        self.total_earnings = 0.0
+        self.ride_history: list['Ride'] = []
+    
+    def update_rating(self, new_rating: float):
+        self.total_ratings += 1
+        self.rating = ((self.rating * (self.total_ratings - 1) + new_rating)
+                       / self.total_ratings)
+    
+    def __str__(self):
+        status = "🟢 Online" if self.is_online else "🔴 Offline"
+        avail = "Available" if self.is_available else "On Trip"
+        return (f"🚗 {self.name} ({self.ride_type.value}) | "
+                f"⭐{self.rating:.1f} | {status} | {avail}")
 ```
 
-</details>
+## Ride
 
-### Q9-15 (Quick)
+```python
+class Ride:
+    """
+    A single ride from pickup to destination.
+    
+    Follows strict state machine via VALID_TRANSITIONS.
+    Fare calculated on completion: (base + dist×rate + time×rate) × surge.
+    """
+    _counter = 0
+    def __init__(self, rider: Rider, pickup: Location, destination: Location,
+                 ride_type: RideType, surge: float = 1.0):
+        Ride._counter += 1
+        self.ride_id = Ride._counter
+        self.rider = rider
+        self.driver: Driver = None
+        self.pickup = pickup
+        self.destination = destination
+        self.ride_type = ride_type
+        self.status = RideStatus.REQUESTED
+        self.surge_multiplier = surge
+        
+        self.request_time = datetime.now()
+        self.match_time: datetime = None
+        self.trip_start_time: datetime = None
+        self.trip_end_time: datetime = None
+        self.fare: float = None
+        
+        self.rider_rating: float = None
+        self.driver_rating: float = None
+        
+        self.status_history = [(RideStatus.REQUESTED, datetime.now())]
+    
+    def transition_to(self, new_status: RideStatus):
+        """Strict state machine transition."""
+        if new_status not in VALID_TRANSITIONS.get(self.status, set()):
+            raise ValueError(
+                f"Invalid transition: {self.status.value} → {new_status.value}. "
+                f"Allowed: {[s.value for s in VALID_TRANSITIONS[self.status]]}"
+            )
+        self.status = new_status
+        self.status_history.append((new_status, datetime.now()))
+        
+        if new_status == RideStatus.MATCHED:
+            self.match_time = datetime.now()
+        elif new_status == RideStatus.TRIP_STARTED:
+            self.trip_start_time = datetime.now()
+        elif new_status == RideStatus.COMPLETED:
+            self.trip_end_time = datetime.now()
+    
+    @property
+    def distance_km(self) -> float:
+        return self.pickup.distance_to(self.destination)
+    
+    @property
+    def estimated_duration_min(self) -> float:
+        avg_speed_kmh = 25  # City average
+        return (self.distance_km / avg_speed_kmh) * 60
+    
+    def calculate_fare(self) -> float:
+        config = FARE_CONFIG[self.ride_type]
+        base = config["base"]
+        dist_charge = self.distance_km * config["per_km"]
+        time_charge = self.estimated_duration_min * config["per_min"]
+        self.fare = round((base + dist_charge + time_charge) * self.surge_multiplier, 2)
+        return self.fare
+    
+    def __str__(self):
+        driver_info = f" → Driver: {self.driver.name}" if self.driver else ""
+        fare_info = f" | ₹{self.fare:.0f}" if self.fare else ""
+        return (f"🚕 Ride #{self.ride_id}: {self.rider.name} | "
+                f"{self.status.value} | {self.ride_type.value} | "
+                f"{self.distance_km:.1f}km{driver_info}{fare_info}")
+```
+
+## The Uber System
+
+```python
+class UberSystem:
+    """
+    Central ride-hailing system.
+    
+    Key operations:
+    1. request_ride: Create ride, auto-match nearest driver
+    2. Driver transitions: en_route → start_trip → complete_trip
+    3. cancel_ride: Rider or driver cancels
+    4. Fare: calculated on completion with surge
+    5. Rating: bidirectional after ride
+    
+    Threading: _driver_lock for atomic driver matching
+    """
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized: return
+        self._initialized = True
+        self.riders: dict[int, Rider] = {}
+        self.drivers: dict[int, Driver] = {}
+        self.rides: dict[int, Ride] = {}
+        self._driver_lock = threading.Lock()
+        self._surge = 1.0  # Global surge multiplier
+    
+    def register_rider(self, name, lat, lng) -> Rider:
+        rider = Rider(name, lat, lng)
+        self.riders[rider.rider_id] = rider
+        print(f"   ✅ Rider registered: {rider}")
+        return rider
+    
+    def register_driver(self, name, lat, lng,
+                        ride_type=RideType.ECONOMY) -> Driver:
+        driver = Driver(name, lat, lng, ride_type)
+        self.drivers[driver.driver_id] = driver
+        print(f"   ✅ Driver registered: {driver}")
+        return driver
+    
+    def set_surge(self, multiplier: float):
+        self._surge = max(1.0, multiplier)
+        print(f"   ⚡ Surge pricing: {self._surge:.1f}×")
+    
+    # ── Request Ride ──
+    def request_ride(self, rider_id: int, dest_lat: float, dest_lng: float,
+                     ride_type=RideType.ECONOMY) -> Ride | None:
+        rider = self.riders.get(rider_id)
+        if not rider:
+            print("   ❌ Rider not found!"); return None
+        if rider.current_ride:
+            print("   ❌ Rider already has an active ride!"); return None
+        
+        destination = Location(dest_lat, dest_lng)
+        ride = Ride(rider, rider.location, destination, ride_type, self._surge)
+        self.rides[ride.ride_id] = ride
+        rider.current_ride = ride
+        
+        print(f"   🔍 Ride #{ride.ride_id} requested: {rider.name} "
+              f"→ {ride.distance_km:.1f} km ({ride_type.value})")
+        
+        if self._surge > 1.0:
+            print(f"      ⚡ Surge: {self._surge:.1f}×")
+        
+        # Auto-match
+        self._match_driver(ride)
+        return ride
+    
+    def _match_driver(self, ride: Ride):
+        """
+        Find nearest available driver for this ride.
+        Atomic: lock prevents two rides getting the same driver.
+        """
+        with self._driver_lock:
+            best_driver = None
+            best_distance = float('inf')
+            
+            for driver in self.drivers.values():
+                if not driver.is_available or not driver.is_online:
+                    continue
+                if driver.current_ride is not None:
+                    continue
+                
+                dist = driver.location.distance_to(ride.pickup)
+                if dist < best_distance:
+                    best_distance = dist
+                    best_driver = driver
+            
+            if best_driver:
+                ride.driver = best_driver
+                best_driver.current_ride = ride
+                best_driver.is_available = False
+                ride.transition_to(RideStatus.MATCHED)
+                
+                eta = round(best_distance / 25 * 60, 1)  # minutes
+                print(f"   ✅ Matched: {best_driver.name} "
+                      f"({best_distance:.1f} km, ETA {eta} min)")
+            else:
+                print("   ⏳ No drivers available! Searching...")
+    
+    # ── Driver Actions ──
+    def driver_en_route(self, ride_id: int) -> bool:
+        ride = self.rides.get(ride_id)
+        if not ride: return False
+        ride.transition_to(RideStatus.EN_ROUTE_PICKUP)
+        print(f"   🚗 Driver {ride.driver.name} en route to pickup")
+        return True
+    
+    def start_trip(self, ride_id: int) -> bool:
+        ride = self.rides.get(ride_id)
+        if not ride: return False
+        ride.transition_to(RideStatus.TRIP_STARTED)
+        print(f"   🏁 Trip started: {ride.rider.name} → {ride.destination}")
+        return True
+    
+    def complete_trip(self, ride_id: int) -> float:
+        ride = self.rides.get(ride_id)
+        if not ride: return 0
+        
+        ride.transition_to(RideStatus.COMPLETED)
+        fare = ride.calculate_fare()
+        
+        # Release driver
+        ride.driver.is_available = True
+        ride.driver.current_ride = None
+        ride.driver.total_trips += 1
+        ride.driver.total_earnings += fare
+        ride.driver.ride_history.append(ride)
+        
+        # Update rider
+        ride.rider.current_ride = None
+        ride.rider.ride_history.append(ride)
+        
+        config = FARE_CONFIG[ride.ride_type]
+        print(f"   ✅ Trip completed!")
+        print(f"      Distance: {ride.distance_km:.1f} km | "
+              f"Est. time: {ride.estimated_duration_min:.0f} min")
+        print(f"      Base: ₹{config['base']} + "
+              f"Dist: ₹{ride.distance_km * config['per_km']:.0f} + "
+              f"Time: ₹{ride.estimated_duration_min * config['per_min']:.0f}")
+        if ride.surge_multiplier > 1:
+            print(f"      Surge: {ride.surge_multiplier:.1f}×")
+        print(f"      💰 Total fare: ₹{fare:.0f}")
+        return fare
+    
+    # ── Cancel ──
+    def cancel_ride(self, ride_id: int, cancelled_by: str) -> bool:
+        ride = self.rides.get(ride_id)
+        if not ride:
+            print("   ❌ Ride not found!"); return False
+        
+        if ride.status in {RideStatus.COMPLETED, RideStatus.CANCELLED}:
+            print("   ❌ Ride already finished!"); return False
+        
+        ride.transition_to(RideStatus.CANCELLED)
+        
+        # Release driver if assigned
+        if ride.driver:
+            ride.driver.is_available = True
+            ride.driver.current_ride = None
+        ride.rider.current_ride = None
+        
+        penalty = ""
+        if ride.status == RideStatus.TRIP_STARTED:
+            penalty = " (cancellation fee may apply)"
+        
+        print(f"   ❌ Ride #{ride_id} cancelled by {cancelled_by}{penalty}")
+        return True
+    
+    # ── Rating ──
+    def rate_ride(self, ride_id: int, rider_rating: float = None,
+                  driver_rating: float = None):
+        ride = self.rides.get(ride_id)
+        if not ride or ride.status != RideStatus.COMPLETED:
+            print("   ❌ Can only rate completed rides!"); return
+        
+        if driver_rating:
+            ride.driver_rating = driver_rating
+            ride.driver.update_rating(driver_rating)
+            print(f"   ⭐ {ride.rider.name} rated driver "
+                  f"{ride.driver.name}: {driver_rating}/5")
+        
+        if rider_rating:
+            ride.rider_rating = rider_rating
+            ride.rider.update_rating(rider_rating)
+            print(f"   ⭐ {ride.driver.name} rated rider "
+                  f"{ride.rider.name}: {rider_rating}/5")
+    
+    # ── Driver Online/Offline ──
+    def go_offline(self, driver_id: int):
+        driver = self.drivers.get(driver_id)
+        if driver and driver.is_available:
+            driver.is_online = False
+            driver.is_available = False
+            print(f"   🔴 {driver.name} went offline")
+    
+    def go_online(self, driver_id: int):
+        driver = self.drivers.get(driver_id)
+        if driver:
+            driver.is_online = True
+            driver.is_available = True
+            print(f"   🟢 {driver.name} is online")
+```
+
+---
+
+# 📊 8. Data Structure Choices & Trade-offs
+
+| Data Structure | Where | Why | Alternative | Why Not |
+|---------------|-------|-----|-------------|---------|
+| `dict[int, Driver]` | System.drivers | O(1) lookup by ID | `list` | Need fast lookup by driver_id |
+| `VALID_TRANSITIONS` dict | Ride state machine | O(1) validity check. Declarative, easy to read | if-elif chain | Hard to maintain. Not extensible |
+| `FARE_CONFIG` dict | Fare parameters | OCP — new ride type = add entry. Zero code change | Hard-coded | Violates OCP |
+| `list[tuple]` | Ride.status_history | Audit trail. Chronological state changes | No history | Need for debugging and analytics |
+| `Location` object | Coordinates | Encapsulate lat/lng + distance calculation | Raw tuple | Behavior (distance_to) belongs with data |
+
+### Why Not a Spatial Index for Driver Matching?
+
+```python
+# Our approach: scan all drivers O(D)
+for driver in drivers.values():
+    dist = driver.location.distance_to(ride.pickup)
+
+# Production: spatial index
+# - GeoHash: encode lat/lng → string. Nearby locations share prefix
+# - R-Tree: spatial index for range queries  
+# - Redis GEOSEARCH: built-in spatial query
+# - Uber's H3: hexagonal hierarchical spatial index
+
+# For LLD interview: linear scan is fine. Mention GeoHash/H3 for bonus.
+```
+
+---
+
+# 🔒 9. Concurrency & Thread Safety Deep Dive
+
+## The Same-Driver-Two-Riders Race
+
+```
+Timeline: Driver A is the nearest available for BOTH riders
+
+t=0: Rider X → request_ride → scans → Driver A is nearest!
+t=1: Rider Y → request_ride → scans → Driver A is nearest!
+t=2: Rider X → assigns Driver A → ride matched!
+t=3: Rider Y → assigns Driver A → 💀 DOUBLE ASSIGNMENT!
+```
+
+```python
+# Fix: _driver_lock makes match atomic
+def _match_driver(self, ride):
+    with self._driver_lock:  # Only one ride matches at a time
+        for driver in self.drivers.values():
+            if not driver.is_available:  # Already assigned!
+                continue
+            ...
+        best_driver.is_available = False  # Atomic with search
+```
+
+### Production: Per-Zone Locking
+
+```
+City divided into zones. Each zone has its own lock.
+Zone A lock → matching in Zone A
+Zone B lock → matching in Zone B (PARALLEL!)
+
+Riders in different zones → parallel matching!
+Riders in same zone → serialized (but same-zone = correct behavior)
+```
+
+---
+
+# 🧪 10. SOLID Principles Mapping
+
+| Principle | Where Applied | Explanation |
+|-----------|--------------|-------------|
+| **S** | Clear separation | Rider = identity. Driver = identity + availability. Ride = trip state. Location = coordinates + distance. System = orchestration |
+| **O** | FARE_CONFIG + VALID_TRANSITIONS | New ride type (POOL) = add config entry. New state = add to transition dict |
+| **L** | All ride types processed identically | request_ride, complete_trip work the same for ECONOMY and PREMIUM |
+| **I** | Separate rider/driver operations | request_ride (rider), start_trip (driver), complete_trip (driver) |
+| **D** | System → enums + config dicts | Not hard-coded pricing or transitions |
+
+---
+
+# 🎨 11. Design Patterns Used
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| **State Machine** ⭐ | VALID_TRANSITIONS | Ride lifecycle with strict state transitions |
+| **Strategy** | FARE_CONFIG | Different pricing per ride type |
+| **Observer** | (Extension) Notifications | Ride matched → notify rider. Trip completed → send receipt |
+| **Singleton** | UberSystem | One system per application |
+| **Factory** | (Extension) RideFactory | Create rides with default config |
+
+### Cross-Problem Multi-Actor Comparison
+
+| System | Actors | State Machine | Matching |
+|--------|--------|---------------|----------|
+| **Uber** | Rider, Driver | 5 states (ride lifecycle) | Nearest driver to RIDER |
+| **Food Delivery** | Customer, Restaurant, Driver | 7 states (order lifecycle) | Nearest driver to RESTAURANT |
+| **Ambulance** | Patient, Dispatcher, Ambulance | 4 states | Nearest + equipped |
+
+---
+
+# 💾 12. Database Schema (Production View)
+
+```sql
+CREATE TABLE riders (
+    rider_id    SERIAL PRIMARY KEY,
+    name        VARCHAR(100),
+    lat         DECIMAL(9,6),
+    lng         DECIMAL(9,6),
+    rating      DECIMAL(3,2) DEFAULT 5.0
+);
+
+CREATE TABLE drivers (
+    driver_id   SERIAL PRIMARY KEY,
+    name        VARCHAR(100),
+    lat         DECIMAL(9,6),
+    lng         DECIMAL(9,6),
+    ride_type   VARCHAR(20),
+    is_available BOOLEAN DEFAULT TRUE,
+    is_online   BOOLEAN DEFAULT TRUE,
+    rating      DECIMAL(3,2) DEFAULT 5.0,
+    -- Spatial index for fast nearest-driver queries
+    SPATIAL INDEX idx_location (lat, lng)
+);
+
+CREATE TABLE rides (
+    ride_id     SERIAL PRIMARY KEY,
+    rider_id    INTEGER REFERENCES riders(rider_id),
+    driver_id   INTEGER REFERENCES drivers(driver_id),
+    pickup_lat  DECIMAL(9,6),
+    pickup_lng  DECIMAL(9,6),
+    dest_lat    DECIMAL(9,6),
+    dest_lng    DECIMAL(9,6),
+    ride_type   VARCHAR(20),
+    status      VARCHAR(20),
+    surge       DECIMAL(3,2) DEFAULT 1.0,
+    fare        DECIMAL(10,2),
+    request_time TIMESTAMP,
+    match_time  TIMESTAMP,
+    start_time  TIMESTAMP,
+    end_time    TIMESTAMP,
+    rider_rating DECIMAL(2,1),
+    driver_rating DECIMAL(2,1)
+);
+
+-- Find nearest available driver (with spatial index)
+SELECT driver_id, name,
+    ST_Distance_Sphere(POINT(lng, lat), POINT(77.59, 12.97)) / 1000 as dist_km
+FROM drivers
+WHERE is_available = TRUE AND is_online = TRUE AND ride_type = 'ECONOMY'
+ORDER BY dist_km ASC
+LIMIT 1
+FOR UPDATE;  -- Lock row for atomic assignment!
+```
+
+---
+
+# ⚠️ 13. Edge Cases & Error Handling
+
+| # | Edge Case | Fix |
+|---|-----------|-----|
+| 1 | **No drivers available** | Return message. Retry with expanding radius |
+| 2 | **Two riders request → same nearest driver** | _driver_lock: atomic match. Second rider gets next nearest |
+| 3 | **Rider already has active ride** | Reject: "Already have an active ride!" |
+| 4 | **Cancel after trip started** | By rider: cancellation fee. By driver: penalty on record |
+| 5 | **Driver goes offline mid-ride** | Can't go offline during active ride. Reject offline request |
+| 6 | **Invalid state transition** | VALID_TRANSITIONS raises ValueError |
+| 7 | **Surge pricing edge: exactly 1.0** | Treat as no surge. Display no surge indicator |
+| 8 | **Zero distance ride** | Minimum fare applies (base fare at least) |
+| 9 | **Driver rating drops below 4.0** | (Extension) Deactivate driver. Quality control |
+| 10 | **Payment failure** | Hold ride in COMPLETED but flag payment_failed |
+
+---
+
+# 🎮 14. Full Working Demo
+
+```python
+if __name__ == "__main__":
+    UberSystem._instance = None
+    
+    print("=" * 65)
+    print("     🚗 UBER / RIDE-SHARING — COMPLETE DEMO")
+    print("=" * 65)
+    
+    uber = UberSystem()
+    
+    # Setup
+    print("\n─── Setup: Register Riders & Drivers ───")
+    r1 = uber.register_rider("Alice", 12.9716, 77.5946)
+    r2 = uber.register_rider("Bob", 12.9352, 77.6245)
+    
+    d1 = uber.register_driver("Raju", 12.9750, 77.5960, RideType.ECONOMY)
+    d2 = uber.register_driver("Suresh", 12.9400, 77.6300, RideType.ECONOMY)
+    d3 = uber.register_driver("Vijay", 12.9800, 77.6000, RideType.PREMIUM)
+    
+    # Test 1: Request & Match
+    print("\n─── Test 1: Alice Requests Ride ───")
+    ride1 = uber.request_ride(r1.rider_id, 12.9352, 77.6245)
+    
+    # Test 2: Full ride lifecycle
+    print("\n─── Test 2: Full Ride Lifecycle ───")
+    uber.driver_en_route(ride1.ride_id)
+    uber.start_trip(ride1.ride_id)
+    fare1 = uber.complete_trip(ride1.ride_id)
+    
+    # Test 3: Rating
+    print("\n─── Test 3: Rating ───")
+    uber.rate_ride(ride1.ride_id, driver_rating=5, rider_rating=4)
+    
+    # Test 4: Bob requests ride (Raju now available again!)
+    print("\n─── Test 4: Bob Requests Ride ───")
+    ride2 = uber.request_ride(r2.rider_id, 13.0000, 77.6500)
+    
+    # Test 5: Surge pricing
+    print("\n─── Test 5: Surge Pricing ───")
+    uber.complete_trip(ride2.ride_id)  # Complete Bob's ride first
+    uber.set_surge(1.5)
+    ride3 = uber.request_ride(r1.rider_id, 12.9500, 77.6100)
+    if ride3:
+        uber.start_trip(ride3.ride_id)
+        fare3 = uber.complete_trip(ride3.ride_id)
+    uber.set_surge(1.0)  # Reset surge
+    
+    # Test 6: Cancel ride
+    print("\n─── Test 6: Cancel Ride ───")
+    ride4 = uber.request_ride(r2.rider_id, 13.0100, 77.6600)
+    if ride4:
+        uber.cancel_ride(ride4.ride_id, "Bob")
+    
+    # Test 7: No drivers available
+    print("\n─── Test 7: No Drivers (all offline) ───")
+    uber.go_offline(d1.driver_id)
+    uber.go_offline(d2.driver_id)
+    uber.go_offline(d3.driver_id)
+    ride5 = uber.request_ride(r1.rider_id, 12.9500, 77.6100)
+    
+    # Test 8: Driver back online
+    print("\n─── Test 8: Driver Back Online ───")
+    uber.go_online(d1.driver_id)
+    ride6 = uber.request_ride(r1.rider_id, 12.9500, 77.6100)
+    if ride6:
+        uber.start_trip(ride6.ride_id)
+        uber.complete_trip(ride6.ride_id)
+    
+    # Final stats
+    print("\n─── Final Stats ───")
+    for d in [d1, d2, d3]:
+        print(f"   {d} | Trips: {d.total_trips} | Earnings: ₹{d.total_earnings:.0f}")
+    
+    print(f"\n{'='*65}")
+    print("     ✅ ALL 8 TESTS COMPLETE!")
+    print(f"{'='*65}")
+```
+
+---
+
+# 🎤 15. Interviewer Follow-ups (15+)
 
 | Q | Question | Key Answer |
 |---|----------|-----------|
-| 9 | "How to add vehicle categories (Mini, Sedan, SUV)?" | Already covered — VehicleType enum + PRICING dict |
-| 10 | "How to handle payment failure?" | Retry → fallback to cash → block future rides |
-| 11 | "How to implement ride scheduling?" | Store `scheduled_time`, trigger matching near that time |
-| 12 | "Driver hotspots suggestion?" | Heatmap of recent ride demand → recommend idle drivers to move there |
-| 13 | "How to handle route deviation?" | Compare actual GPS path vs expected path, alert rider |
-| 14 | "SOS/emergency button?" | Send location to emergency contacts + support, record trip |
-| 15 | "How to add tipping?" | Optional tip after completion, 100% goes to driver |
+| 1 | "Driver matching algorithm?" | Scan available, filter by type, sort by distance, pick nearest. Lock for atomicity |
+| 2 | "Surge pricing?" | Demand/supply ratio. More requests than drivers → surge > 1.0. Multiplier on fare |
+| 3 | "Fare calculation?" | (base + distance×rate + time×rate) × surge. Config dict per ride type (OCP) |
+| 4 | "Race condition: two riders, one driver?" | _driver_lock: atomic find + assign. Second rider gets next nearest |
+| 5 | "Ride pooling?" | Match riders going same direction. Split fare. Complex route optimization |
+| 6 | "ETA calculation?" | distance / avg_speed. Production: Google Maps API with real-time traffic |
+| 7 | "Driver acceptance flow?" | Send ride offer → driver has 15 seconds → accept/reject. If reject, offer to next nearest |
+| 8 | "GeoHash / H3?" | Spatial indexing for fast nearest query. H3 = hexagonal grid. Uber uses H3 |
+| 9 | "Payment strategy?" | Strategy pattern: Cash, Card, Wallet. Charge after complete_trip |
+| 10 | "How does Uber handle millions of drivers?" | City partitioned into zones. Per-zone driver index. Spatial databases |
+| 11 | "Cancel penalty?" | Free cancel before driver arrives. ₹50 fee if driver already en route |
+| 12 | "Driver quality control?" | Rating < 4.2 → warning. < 4.0 → deactivation |
+| 13 | "Scheduled rides?" | Future time. Match driver 10 min before. Priority queue by scheduled_time |
+| 14 | "Multi-stop?" | Intermediate waypoints. Fare = total route distance regardless of stops |
+| 15 | "Compare with Food Delivery?" | Same pattern: state machine + atomic driver assignment. Food has 3 actors, Uber has 2 |
 
 ---
 
-## 📊 Comparison with Similar Problems
+# ⏱️ 16. Interview Strategy (45-min Plan)
 
-| Feature | Uber | BookMyShow | Food Delivery |
-|---------|------|-----------|---------------|
-| **Resource matched** | Driver | Seat | Agent |
-| **Location-based** | ✅ Must match nearby | ❌ Fixed theatre | ✅ Agent near restaurant |
-| **Status on entity** | Driver (AVAILABLE/ON_RIDE) | Show (per-seat) | Agent (AVAILABLE) |
-| **Pricing model** | Dynamic (surge) | Fixed (per show) | Menu + delivery fee |
-| **State count** | 5 | 3 (seat) | 6 |
-| **Two-sided acceptance** | ✅ Driver accepts | ❌ | ❌ (agent assigned) |
-| **Real-time location** | ✅ Driver moves | ❌ | ✅ Agent moves |
+| Time | Phase | What You Do |
+|------|-------|-------------|
+| **0–5** | Clarify | Matching, ride types, surge, cancellation |
+| **5–10** | Key Insight | Draw state machine (5 states). VALID_TRANSITIONS dict. Compare with Food Delivery |
+| **10–15** | Class Diagram | Location, Rider, Driver, Ride, UberSystem |
+| **15–30** | Code | Ride (state machine), Driver matching (lock + nearest), fare calculation, complete_trip |
+| **30–38** | Demo | Full lifecycle, surge ride, cancel, no drivers, rating |
+| **38–45** | Extensions | GeoHash/H3, ride pooling, driver acceptance, scheduled rides |
 
----
+## Golden Sentences
 
-## 🌐 Production Scaling
+> **Opening:** "Uber is a multi-actor state machine with atomic driver assignment. Same pattern as Food Delivery but with 2 actors (Rider, Driver) instead of 3."
 
-| Concern | Solution |
-|---------|----------|
-| Location indexing | **Google S2 cells / H3 hexagons** for spatial queries |
-| Real-time tracking | **WebSocket** for driver location updates |
-| Driver location store | **Redis GeoSet** (`GEOADD`, `GEORADIUS`) |
-| Matching | **Dedicated matching service** with priority queue |
-| Surge calcuation | **Per-cell surge** updated every 30s |
-| Payment | Async via **message queue** (Kafka → payment service) |
-| ETA | **Google Maps API** / internal routing engine |
-| Analytics | **Event streaming** (every ride event → Kafka → data lake) |
+> **Matching:** "Scan available drivers, filter by ride type and online status, sort by distance to pickup, pick nearest. Lock for atomic find + assign."
+
+> **Fare:** "Configurable via FARE_CONFIG dict. `(base + dist×per_km + time×per_min) × surge`. New ride type = add config entry (OCP)."
 
 ---
 
-## 🧠 Quick Recall Script
+# 🧠 17. Quick Recall Cheat Sheet
 
-> **First 30 seconds:**
-> "I'd design Uber with **Rider, Driver, Ride** as core entities. The key algorithm is **driver matching** — filter AVAILABLE drivers by vehicle type, filter within radius, sort by distance. Rides go through a **state machine**: REQUESTED → ASSIGNED → IN_PROGRESS → COMPLETED/CANCELLED with validation on each transition."
+## ⏱️ 30-Second Recall
 
-> **If they ask about pricing:**
-> "Fare = (base + per_km × distance + per_min × duration) × surge. Pricing is a **config dict** per vehicle type (not Strategy, because the formula is the same, only numbers differ). Surge multiplier is supply/demand based."
+> **5 states:** REQUESTED → MATCHED → EN_ROUTE_PICKUP → TRIP_STARTED → COMPLETED (or CANCELLED). **VALID_TRANSITIONS** dict. **Matching:** nearest available driver, atomic with _driver_lock. **Fare:** `(base + dist×rate + time×rate) × surge`. FARE_CONFIG per ride type. **Rating:** bidirectional rolling average.
 
-> **If they ask about concurrency:**
-> "Lock on `request_ride()` — two riders can't get the same driver. In production: broadcast to driver, let driver accept (eliminates server-side race)."
+## ⏱️ 2-Minute Recall
 
-> **If they ask about driver location:**
-> "**Critical:** after ride completion, update driver location to DROP location. Otherwise matching finds drivers at their OLD location."
+Add:
+> **Entities:** Location (lat, lng, distance_to). Rider (name, location, current_ride). Driver (name, location, ride_type, is_available, is_online). Ride (rider, driver, pickup, dest, status, surge, fare).
+> **Match flow:** lock → scan available + online → filter ride type → sort by distance → assign nearest → set unavailable.
+> **Complete flow:** transition → calc fare → release driver (available=True) → update histories + earnings.
+> **Cancel:** allowed from REQUESTED, MATCHED, EN_ROUTE. Release driver if assigned.
+
+## ⏱️ 5-Minute Recall
+
+Add:
+> **SOLID:** OCP via FARE_CONFIG (new type = add entry) + VALID_TRANSITIONS (new state = add to dict). SRP per class.
+> **Concurrency:** _driver_lock prevents double assignment. Production: per-zone locking for parallelism.
+> **DB:** drivers table with SPATIAL INDEX. `SELECT ... ORDER BY distance LIMIT 1 FOR UPDATE`.
+> **Production:** H3 hexagonal grid (Uber), GeoHash, Redis GEOSEARCH for fast nearest queries.
+> **Compare:** Uber (Rider+Driver) vs Food Delivery (Customer+Restaurant+Driver). Same VALID_TRANSITIONS pattern, different actor count and states.
 
 ---
 
 ## ✅ Pre-Implementation Checklist
 
-- [ ] Enums: RideStatus, DriverStatus, VehicleType
-- [ ] Location with distance_to() (Euclidean)
-- [ ] Rider (ride_history, rating)
-- [ ] Driver (vehicle_type, status, location, rating)
-- [ ] Ride (rider + driver + locations + status + fare)
-- [ ] PRICING config dict per vehicle type
-- [ ] find_nearby_drivers() — filter → sort
-- [ ] request_ride() — find drivers → assign → create ride
-- [ ] accept_ride() — validate state → assign driver
-- [ ] start_ride() — validate → record start_time
-- [ ] complete_ride() — calculate fare → payment → update driver location
-- [ ] cancel_ride() — free driver → update status
-- [ ] PaymentStrategy (Cash, Card, UPI)
-- [ ] Surge multiplier
-- [ ] Rating system (running average)
-- [ ] CabBookingSystem singleton with Lock
-- [ ] Demo: full ride, surge, cancel, state validation
+- [ ] **RideStatus** enum (6 states) + **VALID_TRANSITIONS** dict
+- [ ] **RideType** enum + **FARE_CONFIG** dict (base, per_km, per_min)
+- [ ] **Location** (lat, lng, distance_to with Haversine)
+- [ ] **Rider** (name, location, rating, current_ride, ride_history)
+- [ ] **Driver** (name, location, ride_type, is_available, is_online, current_ride, earnings)
+- [ ] **Ride** (rider, driver, pickup, destination, status, surge, fare, transition_to, calculate_fare)
+- [ ] **request_ride()** — create ride → auto _match_driver
+- [ ] **_match_driver()** — _driver_lock → scan available → nearest → assign → MATCHED
+- [ ] **complete_trip()** — transition → calc fare → release driver → update histories
+- [ ] **cancel_ride()** — validate state → transition → release driver
+- [ ] **Demo:** full lifecycle, surge, cancel, no drivers, rating
 
 ---
 
-*Version 2.0 — Comprehensive Edition*
+*Version 2.0 — The Definitive 17-Section Edition (Gold Standard)*
